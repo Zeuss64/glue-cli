@@ -20,6 +20,7 @@ import { createOpenAIClient } from "../llm/client.js";
 import { expandMentions, mentionQuery } from "../mentions.js";
 import { nextMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
+import { decideResume, openResumePicker, reduceResumePicker, resumePickerView } from "../resume.js";
 import { snapsToRestore } from "../rewind.js";
 import { Sandbox } from "../sandbox.js";
 import {
@@ -43,6 +44,7 @@ import {
   HelpPanel,
   PermissionDialog,
   PromptBox,
+  ResumePicker,
   SlashMenu,
   Spinner,
   StatusBar,
@@ -93,7 +95,7 @@ type Phase =
   | { type: "plan"; plan: string; selected: number; resolve: (answer: { approved: boolean; feedback?: string }) => void };
 
 type Picker =
-  | { kind: "resume"; rows: SessionSnapshot[]; selected: number }
+  | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
   | { kind: "rewind"; rows: Checkpoint[]; selected: number };
 
 export async function startTui(boot: Boot): Promise<void> {
@@ -132,6 +134,7 @@ function App({ boot }: { boot: Boot }) {
   const [shellEnabled, setShellEnabled] = useState(boot.config.shellEnabled);
   const [sessionName, setSessionName] = useState("");
   const [picker, setPicker] = useState<Picker | null>(null);
+  const pickerRef = useRef<Picker | null>(null);
   const [rev, setRev] = useState<{ query: string; index: number; prev: EditorState } | null>(null);
   const [branch, setBranch] = useState<string | undefined>(() => gitBranch(boot.config.workspace));
   const [cwdLabel, setCwdLabel] = useState(() => shorten(boot.config.workspace));
@@ -233,6 +236,11 @@ function App({ boot }: { boot: Boot }) {
 
   function system(text: string, kind: "system" | "error" = "system"): void {
     pushItem({ id: createId("s"), type: kind, text });
+  }
+
+  function setPickerBoth(next: Picker | null): void {
+    pickerRef.current = next;
+    setPicker(next);
   }
 
   const hostRef = useRef<CommandHost>(null as unknown as CommandHost);
@@ -346,21 +354,16 @@ function App({ boot }: { boot: Boot }) {
       system(answer || "Nothing to recap yet.");
     },
     resume: async (id) => {
-      if (!id) {
-        const rows = listSessions(workspaceRef.current);
-        if (!rows.length) {
-          system("No saved sessions.");
-          return;
-        }
-        setPicker({ kind: "resume", rows, selected: 0 });
+      const decision = decideResume(id, listSessions(workspaceRef.current), logRef.current?.meta.id);
+      if (decision.action === "message") {
+        system(decision.text, decision.level);
         return;
       }
-      const file = findSessionFile(workspaceRef.current, id);
-      if (!file) {
-        system(`No session matches ${id}.`, "error");
+      if (decision.action === "load") {
+        loadResumed(decision.id);
         return;
       }
-      applySnapshot(loadSession(file), file);
+      setPickerBoth({ kind: "resume", state: openResumePicker(decision.items, decision.query) });
     },
     rewind: (index) => {
       const rows = checkpointsRef.current;
@@ -369,7 +372,7 @@ function App({ boot }: { boot: Boot }) {
         return;
       }
       if (index === undefined || Number.isNaN(index)) {
-        setPicker({ kind: "rewind", rows, selected: rows.length - 1 });
+        setPickerBoth({ kind: "rewind", rows, selected: rows.length - 1 });
         return;
       }
       restoreCheckpoint(index);
@@ -451,6 +454,15 @@ function App({ boot }: { boot: Boot }) {
     showMemory: () => system(readMemoryPreview(workspaceRef.current)),
     showDiff: () => system(clip(gitText(workspaceRef.current, ["diff", "--stat"]) + "\n\n" + gitText(workspaceRef.current, ["diff"]), 8000)),
   };
+  function loadResumed(id: string): void {
+    const file = findSessionFile(workspaceRef.current, id);
+    if (!file) {
+      system(`No session matches ${id}.`, "error");
+      return;
+    }
+    applySnapshot(loadSession(file), file);
+  }
+
   function applySnapshot(snap: SessionSnapshot, file: string): void {
     logRef.current = SessionLog.open(file);
     const convo = snap.messages.filter((message) => message.role !== "system");
@@ -463,13 +475,36 @@ function App({ boot }: { boot: Boot }) {
       modelRef.current = snap.meta.model;
       setModelState(snap.meta.model);
     }
+    if (snap.meta.profile) {
+      profileRef.current = snap.meta.profile;
+      setProfileState(snap.meta.profile);
+    }
     setSessionName(snap.meta.name);
     rebuildSystem();
     itemsRef.current = snap.items;
     setItems(snap.items);
     ctxRef.current.todos.splice(0, ctxRef.current.todos.length, ...snap.todos);
     setTodos([...snap.todos]);
-    system(`Resumed ${snap.meta.id}${snap.meta.name ? ` · ${snap.meta.name}` : ""}`);
+    queueRef.current = [];
+    checkpointsRef.current = [];
+    rememberReads(snap);
+    setScroll(0);
+    logRef.current.updateMeta({});
+    const label = snap.meta.name ? `${snap.meta.id} · ${snap.meta.name}` : snap.meta.id;
+    pushItem({ id: createId("s"), type: "system", text: `Resumed ${label}` }, false);
+  }
+
+  function rememberReads(snap: SessionSnapshot): void {
+    ctxRef.current.readFiles.clear();
+    for (const item of snap.items) {
+      if (item.type !== "tool" || item.status !== "ok" || !item.target) continue;
+      if (item.name !== "read_file" && item.name !== "write_file" && item.name !== "edit_file") continue;
+      try {
+        ctxRef.current.readFiles.add(ctxRef.current.sandbox.resolve(item.target));
+      } catch {
+        /* the file may be gone, or it lived outside the current roots */
+      }
+    }
   }
 
   function restoreCheckpoint(index: number): void {
@@ -722,6 +757,7 @@ function App({ boot }: { boot: Boot }) {
   }, []);
 
   const slashMatches = editor.text.startsWith("/") && !editor.text.slice(1).includes(" ") ? filterCommands(editor.text.slice(1)) : [];
+  const resumeView = picker?.kind === "resume" ? resumePickerView(picker.state) : null;
   const mention = mentionQuery(editor.text, editor.cursor);
   const fileHits = mention ? completePath(files, mention.query) : [];
   const visible = useMemo(() => windowItems(items, scroll, rows), [items, scroll, rows]);
@@ -829,28 +865,35 @@ function App({ boot }: { boot: Boot }) {
   }
 
   function handlePicker(key: KeyIn): void {
-    if (!picker) return;
-    if (key.escape) {
-      setPicker(null);
+    const current = pickerRef.current;
+    if (!current) return;
+    if (key.escape || (key.ctrl && key.input === "c")) {
+      setPickerBoth(null);
       return;
     }
-    const count = picker.rows.length;
-    if (key.up) setPicker({ ...picker, selected: (picker.selected + count - 1) % count });
-    else if (key.down) setPicker({ ...picker, selected: (picker.selected + 1) % count });
-    else if (key.return) {
-      const selected = picker.selected;
-      if (picker.kind === "resume") {
-        const row = picker.rows[selected];
-        setPicker(null);
-        if (row) {
-          const file = findSessionFile(workspaceRef.current, row.meta.id);
-          if (file) applySnapshot(loadSession(file), file);
-        }
-      } else {
-        setPicker(null);
+    if (current.kind === "rewind") {
+      const count = current.rows.length;
+      if (!count) return;
+      if (key.up) setPickerBoth({ ...current, selected: (current.selected + count - 1) % count });
+      else if (key.down) setPickerBoth({ ...current, selected: (current.selected + 1) % count });
+      else if (key.return) {
+        const selected = current.selected;
+        setPickerBoth(null);
         restoreCheckpoint(selected);
       }
+      return;
     }
+    const next = reduceResumePicker(current.state, key);
+    if (next.effect?.type === "close") {
+      setPickerBoth(null);
+      return;
+    }
+    if (next.effect?.type === "select") {
+      setPickerBoth(null);
+      loadResumed(next.effect.id);
+      return;
+    }
+    setPickerBoth({ kind: "resume", state: next.state });
   }
 
   function handleRev(key: KeyIn): void {
@@ -1095,16 +1138,22 @@ function App({ boot }: { boot: Boot }) {
       {showTodos ? <TodoList todos={todos} theme={theme} /> : null}
       {phase.type === "running" ? <Spinner theme={theme} startedAt={spinFrom || Date.now()} /> : null}
       {help ? <HelpPanel theme={theme} /> : null}
-      {picker ? (
+      {picker?.kind === "rewind" ? (
         <ChoiceDialog
           theme={theme}
-          title={picker.kind === "resume" ? "Resume" : "Rewind"}
-          options={picker.rows.map((row) =>
-            picker.kind === "resume"
-              ? `${(row as SessionSnapshot).meta.id}  ${(row as SessionSnapshot).meta.name || firstUser(row as SessionSnapshot)}`
-              : (row as Checkpoint).label,
-          )}
+          title="Rewind"
+          options={picker.rows.map((row) => row.label)}
           selected={picker.selected}
+        />
+      ) : null}
+      {resumeView ? (
+        <ResumePicker
+          theme={theme}
+          rows={resumeView.rows}
+          selected={resumeView.selected}
+          query={resumeView.query}
+          matchCount={resumeView.matchCount}
+          preview={resumeView.preview}
         />
       ) : null}
       {phase.type === "permission" && phase.step === "choose" ? (
@@ -1244,11 +1293,6 @@ function suggest(cwd: string): string {
   const result = spawnSync("git", ["diff", "--name-only"], { cwd, encoding: "utf8" });
   const file = result.stdout?.split("\n").find(Boolean);
   return file ? `Look at the changes in ${file}` : "Ask Glue to change this project";
-}
-
-function firstUser(session: SessionSnapshot): string {
-  const message = session.messages.find((item) => item.role === "user");
-  return message && message.role === "user" ? message.content.slice(0, 60) : "";
 }
 
 function clip(text: string, max: number): string {

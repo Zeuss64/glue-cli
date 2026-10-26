@@ -92,9 +92,11 @@ Usage
   glue "fix the failing test"  interactive, send the first prompt
   glue -p "summarize src"      print mode, then exit
   glue run "summarize src"     same as -p
-  glue -c                      resume the newest session
-  glue --resume <id>           resume a session
+  glue -c                      continue the newest session
+  glue --resume <id>           resume a session from the shell
   glue doctor                  check config, key, and workspace
+
+In the interactive session, /resume opens a picker and /resume <id> resumes that session.
 
 Options
   -p, --print                  non-interactive print mode
