@@ -2,8 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, render, Text, useApp, useInput, useStdout } from "ink";
-import type { Key } from "ink";
+import { Box, render, Text, useApp, useStdout } from "ink";
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
 import type { AppConfig } from "../config.js";
 import {
@@ -38,10 +37,15 @@ import { executeTool } from "../tools/execute.js";
 import { toolDefinitions } from "../tools/defs.js";
 import type { ChatMessage, FileSnap, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "./editor.js";
+import { useConsoleInput } from "./console-input.js";
+import { bareModelQuery, modelChoices, modelHint, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
+import { prevGrapheme } from "./text.js";
+import { frameRows, smallestRows, transcriptBudget, visibleTranscript } from "./viewport.js";
 import {
   ChoiceDialog,
   Header,
   HelpPanel,
+  ModelPicker,
   PermissionDialog,
   PromptBox,
   ResumePicker,
@@ -96,7 +100,8 @@ type Phase =
 
 type Picker =
   | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
-  | { kind: "rewind"; rows: Checkpoint[]; selected: number };
+  | { kind: "rewind"; rows: Checkpoint[]; selected: number }
+  | { kind: "model"; state: ModelPickerState };
 
 export async function startTui(boot: Boot): Promise<void> {
   const title = `\x1b]0;Glue ${path.basename(boot.config.workspace)}\x07`;
@@ -127,6 +132,9 @@ function App({ boot }: { boot: Boot }) {
   const [scroll, setScroll] = useState(0);
   const [hint, setHint] = useState("");
   const [slashIndex, setSlashIndex] = useState(0);
+  const [modelIndex, setModelIndex] = useState(0);
+  const modelIndexRef = useRef(0);
+  const modelMenuOpen = useRef(false);
   const [fileIndex, setFileIndex] = useState(0);
   const [files, setFiles] = useState<string[]>([]);
   const [spinFrom, setSpinFrom] = useState(0);
@@ -168,10 +176,25 @@ function App({ boot }: { boot: Boot }) {
   const bgRef = useRef(false);
   const checkpointsRef = useRef<Checkpoint[]>([]);
   const editorRef = useRef(editor);
+  function noteModelDraft(text: string): void {
+    const open = bareModelQuery(text);
+    if (open && !modelMenuOpen.current) {
+      const choices = modelChoices(modelRef.current, boot.config.protocol, boot.config.models);
+      const at = choices.findIndex((choice) => choice.id === modelRef.current);
+      const selected = at >= 0 ? at : 0;
+      modelIndexRef.current = selected;
+      setModelIndex(selected);
+      setHint(modelHint({ choices, selected }));
+    } else if (!open && modelMenuOpen.current) {
+      setHint((current) => (current.startsWith("model ") ? "" : current));
+    }
+    modelMenuOpen.current = open;
+  }
   function commitEditor(next: EditorState | ((current: EditorState) => EditorState)): void {
     const resolved = typeof next === "function" ? next(editorRef.current) : next;
     editorRef.current = resolved;
     setEditorState(resolved);
+    noteModelDraft(resolved.text);
   }
   const phaseRef = useRef(phase);
   const runTurnRef = useRef<(text: string, opts?: TurnOpts) => Promise<void>>(async () => {});
@@ -328,6 +351,10 @@ function App({ boot }: { boot: Boot }) {
       system("Started a new conversation. Project memory is unchanged. /resume returns to the previous one.");
     },
     exit: () => requestExit(),
+    openModelPicker: () => {
+      openModelList(null);
+      return true;
+    },
     runTurn: (text, opts) => runTurnRef.current(text, opts),
     compact: async (instructions) => {
       const summary = await sideText(
@@ -749,8 +776,10 @@ function App({ boot }: { boot: Boot }) {
       setCols(stdout?.columns ?? 100);
     };
     stdout?.on("resize", onResize);
+    if (process.stdout !== stdout) process.stdout.on("resize", onResize);
     return () => {
       stdout?.off("resize", onResize);
+      if (process.stdout !== stdout) process.stdout.off("resize", onResize);
     };
     // Startup only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -760,19 +789,38 @@ function App({ boot }: { boot: Boot }) {
   const resumeView = picker?.kind === "resume" ? resumePickerView(picker.state) : null;
   const mention = mentionQuery(editor.text, editor.cursor);
   const fileHits = mention ? completePath(files, mention.query) : [];
-  const visible = useMemo(() => windowItems(items, scroll, rows), [items, scroll, rows]);
+  const modelOptions = useMemo(
+    () => modelChoices(model, boot.config.protocol, boot.config.models),
+    [model, boot.config.protocol, boot.config.models],
+  );
+  const modelDraft = bareModelQuery(editor.text) && !picker && (phase.type === "idle" || phase.type === "running");
+  const termCols = Math.max(1, cols || stdout?.columns || process.stdout.columns || 80);
+  const termRows = frameRows(smallestRows(rows, stdout?.rows, process.stdout.rows));
+  let extraLines = 0;
+  if (phase.type === "running") extraLines += 1;
+  if (help) extraLines += 16;
+  if (showTodos && todos.length) extraLines += 1 + todos.length;
+  if (picker?.kind === "model" || modelDraft) extraLines += Math.min(8, modelOptions.length) + 4;
+  else if (slashMatches.length) extraLines += Math.min(6, slashMatches.length);
+  if (fileHits.length) extraLines += Math.min(6, fileHits.length);
+  if (picker && picker.kind !== "model") extraLines += 12;
+  if (phase.type === "permission" || phase.type === "ask" || phase.type === "plan") extraLines += 10;
+  const visible = useMemo(
+    () => visibleTranscript(items, scroll, termCols, transcriptBudget(termRows, extraLines), expanded),
+    [items, scroll, termCols, termRows, extraLines, expanded],
+  );
 
-  useInput((input, key) => {
-    for (const chunk of splitInput(input, key)) handleKey(chunk.input, chunk.key);
+  useConsoleInput((key) => {
+    handleKey(key);
   });
 
-  function handleKey(input: string, key: Key): void {
-    const k = toKey(input, key);
+  function handleKey(key: KeyIn): void {
+    const k = key;
     if (help) {
       if (k.escape || k.input === "?" || k.ctrl) setHelp(false);
       return;
     }
-    if (picker) {
+    if (pickerRef.current) {
       handlePicker(k);
       return;
     }
@@ -783,6 +831,14 @@ function App({ boot }: { boot: Boot }) {
     const current = phaseRef.current;
     if (current.type === "permission" || current.type === "ask" || current.type === "plan") {
       handleDialog(k, current);
+      return;
+    }
+    if (!pickerRef.current && bareModelQuery(editorRef.current.text) && (k.up || k.down)) {
+      const choices = modelChoices(modelRef.current, boot.config.protocol, boot.config.models);
+      const next = reduceModelPicker({ choices, selected: modelIndexRef.current }, k);
+      modelIndexRef.current = next.state.selected;
+      setModelIndex(next.state.selected);
+      setHint(modelHint(next.state));
       return;
     }
     if (slashMatches.length && (k.up || k.down) && !editor.text.includes("\n")) {
@@ -813,7 +869,7 @@ function App({ boot }: { boot: Boot }) {
       if (current.step === "feedback") {
         if (key.escape) current.resolve({ decision: "deny" });
         else if (key.return) current.resolve({ decision: "deny", feedback: current.feedback });
-        else if (key.backspace) setPhase({ ...current, feedback: current.feedback.slice(0, -1) });
+        else if (key.backspace || key.delete) setPhase({ ...current, feedback: current.feedback.slice(0, prevGrapheme(current.feedback, current.feedback.length)) });
         else if (key.input && !key.ctrl) setPhase({ ...current, feedback: current.feedback + key.input });
         return;
       }
@@ -839,7 +895,7 @@ function App({ boot }: { boot: Boot }) {
       if (current.other) {
         if (key.escape) current.resolve("The user dismissed the question.");
         else if (key.return) current.resolve(current.otherText || "Other");
-        else if (key.backspace) setPhase({ ...current, otherText: current.otherText.slice(0, -1) });
+        else if (key.backspace || key.delete) setPhase({ ...current, otherText: current.otherText.slice(0, prevGrapheme(current.otherText, current.otherText.length)) });
         else if (key.input && !key.ctrl) setPhase({ ...current, otherText: current.otherText + key.input });
         return;
       }
@@ -864,9 +920,39 @@ function App({ boot }: { boot: Boot }) {
     }
   }
 
+  function openModelList(held: number | null): void {
+    const choices = modelChoices(modelRef.current, boot.config.protocol, boot.config.models);
+    const current = Math.max(0, choices.findIndex((choice) => choice.id === modelRef.current));
+    const selected = held == null ? current : Math.min(Math.max(0, held), Math.max(0, choices.length - 1));
+    const state = { choices, selected };
+    setPickerBoth({ kind: "model", state });
+    setHint(modelHint(state));
+  }
+
   function handlePicker(key: KeyIn): void {
     const current = pickerRef.current;
     if (!current) return;
+    if (current.kind === "model") {
+      const next = reduceModelPicker(current.state, key);
+      if (next.effect === "close") {
+        setPickerBoth(null);
+        setHint("");
+        return;
+      }
+      if (next.effect === "select") {
+        const choice = next.state.choices[next.state.selected];
+        setPickerBoth(null);
+        setHint("");
+        if (choice) {
+          hostRef.current.setModel(choice.id);
+          system(`Model set to ${choice.id} for this session.`);
+        }
+        return;
+      }
+      setPickerBoth({ kind: "model", state: next.state });
+      setHint(modelHint(next.state));
+      return;
+    }
     if (key.escape || (key.ctrl && key.input === "c")) {
       setPickerBoth(null);
       return;
@@ -907,7 +993,7 @@ function App({ boot }: { boot: Boot }) {
       setRev(null);
       void submit(current || rev.query);
     } else if (key.tab) {
-      commitEditor({ ...rev.prev, text: current, cursor: current.length });
+      commitEditor({ ...rev.prev, text: current, cursor: current.length, anchor: null });
       setRev(null);
     } else if (key.ctrl && key.input === "r") setRev({ ...rev, index: rev.index + 1 });
     else if (key.backspace) setRev({ ...rev, query: rev.query.slice(0, -1), index: 0 });
@@ -1028,7 +1114,7 @@ function App({ boot }: { boot: Boot }) {
       const text = queueRef.current.pop() ?? "";
       itemsRef.current = itemsRef.current.filter((item) => !(item.type === "user" && item.queued && item.text === text));
       setItems(itemsRef.current);
-      commitEditor({ ...editorRef.current, text, cursor: text.length });
+      commitEditor({ ...editorRef.current, text, cursor: text.length, anchor: null });
       return;
     }
     if (historyPos.current === null) {
@@ -1039,38 +1125,39 @@ function App({ boot }: { boot: Boot }) {
     if (next >= historyRef.current.length) {
       historyPos.current = null;
       const text = draftRef.current;
-      commitEditor({ ...editorRef.current, text, cursor: text.length });
+      commitEditor({ ...editorRef.current, text, cursor: text.length, anchor: null });
       return;
     }
     if (next < 0) return;
     historyPos.current = next;
     const text = historyRef.current[next] ?? "";
-    commitEditor({ ...editorRef.current, text, cursor: text.length });
+    commitEditor({ ...editorRef.current, text, cursor: text.length, anchor: null });
   }
 
   function complete(state: EditorState): void {
     if (!state.text && placeholder) {
-      commitEditor({ ...state, text: placeholder, cursor: placeholder.length });
+      commitEditor({ ...state, text: placeholder, cursor: placeholder.length, anchor: null });
       return;
     }
     const slashQuery = state.text.startsWith("/") ? state.text.slice(1) : "";
     const slashHits = slashQuery && !slashQuery.includes(" ") ? filterCommands(slashQuery) : [];
     if (slashHits.length) {
       const command = slashHits[Math.min(slashIndex, slashHits.length - 1)];
-      if (command) commitEditor({ ...state, text: `/${command.name} `, cursor: command.name.length + 2 });
+      if (command) commitEditor({ ...state, text: `/${command.name} `, cursor: command.name.length + 2, anchor: null });
       return;
     }
     if (mention && fileHits.length) {
       const file = fileHits[Math.min(fileIndex, fileHits.length - 1)];
       if (file) {
         const next = state.text.slice(0, mention.start) + `@${file} ` + state.text.slice(mention.end);
-        commitEditor({ ...state, text: next, cursor: mention.start + file.length + 2 });
+        commitEditor({ ...state, text: next, cursor: mention.start + file.length + 2, anchor: null });
       }
     }
   }
 
   async function submit(raw: string): Promise<void> {
     const text = raw.trim();
+    const heldModel = bareModelQuery(text) ? modelIndexRef.current : null;
     if (!text) return;
     historyPos.current = null;
     if (historyRef.current[historyRef.current.length - 1] !== text) {
@@ -1085,6 +1172,10 @@ function App({ boot }: { boot: Boot }) {
       const slashHits = slashQuery && !raw.includes(" ") ? filterCommands(slashQuery) : [];
       const picked = slashHits[Math.min(slashIndex, Math.max(0, slashHits.length - 1))];
       const runnable = slashHits.length && !raw.includes(" ") ? `/${picked?.name ?? slashQuery}` : text;
+      if (bareModelQuery(runnable)) {
+        openModelList(heldModel);
+        return;
+      }
       if (busyRef.current && !isImmediateCommand(runnable)) {
         queueRef.current.push(runnable);
         pushItem({ id: createId("q"), type: "user", text: runnable, queued: true }, false);
@@ -1128,9 +1219,11 @@ function App({ boot }: { boot: Boot }) {
     : "";
 
   return (
-    <Box flexDirection="column" height={rows} width={cols}>
-      <Header theme={theme} model={model} cwd={cwdLabel} branch={branch} />
-      <Box flexGrow={1} flexDirection="column" overflow="hidden" justifyContent="flex-end">
+    <Box flexDirection="column" height={termRows} width={termCols} overflow="hidden">
+      <Box flexShrink={0}>
+        <Header theme={theme} model={model} cwd={cwdLabel} branch={branch} />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minHeight={0} flexDirection="column" overflow="hidden" justifyContent="flex-end">
         {items.length === 0 ? <Welcome theme={theme} profile={profile} /> : null}
         {scroll > 0 ? <Text color={theme.muted}>… pgdn for latest</Text> : null}
         <TranscriptView items={visible} theme={theme} expanded={expanded} />
@@ -1182,7 +1275,11 @@ function App({ boot }: { boot: Boot }) {
           selected={phase.selected}
         />
       ) : null}
-      {slashMatches.length ? (
+      {picker?.kind === "model" ? (
+        <ModelPicker theme={theme} choices={picker.state.choices} selected={picker.state.selected} />
+      ) : modelDraft ? (
+        <ModelPicker theme={theme} choices={modelOptions} selected={modelIndex} />
+      ) : slashMatches.length ? (
         <SlashMenu
           theme={theme}
           selected={visibleSlash(slashMatches, slashIndex).selected}
@@ -1200,6 +1297,7 @@ function App({ boot }: { boot: Boot }) {
         theme={theme}
         text={rev ? rev.query : editor.text}
         cursor={rev ? rev.query.length : editor.cursor}
+        anchor={rev ? null : editor.anchor}
         placeholder={placeholder}
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
@@ -1214,63 +1312,9 @@ interface TurnOpts {
   alreadyShown?: boolean;
 }
 
-function windowItems(items: TranscriptItem[], scroll: number, rows: number): TranscriptItem[] {
-  const end = Math.max(0, items.length - scroll);
-  const sliced = items.slice(0, end);
-  const budget = Math.max(6, rows - 12);
-  const kept: TranscriptItem[] = [];
-  let used = 0;
-  for (let i = sliced.length - 1; i >= 0; i--) {
-    const item = sliced[i];
-    if (!item) continue;
-    const cost = item.type === "tool" ? 3 + Math.min(6, item.diff?.length ?? 0) : Math.max(1, Math.ceil(textOf(item).length / 80));
-    if (kept.length && used + cost > budget) break;
-    kept.push(item);
-    used += cost;
-  }
-  return kept.reverse();
-}
-
-function textOf(item: TranscriptItem): string {
-  if (item.type === "tool") return item.summary ?? item.target;
-  return item.text;
-}
-
 function visibleSlash<T>(rows: T[], index: number, size = 6): { rows: T[]; selected: number } {
   const start = Math.max(0, Math.min(Math.max(0, index - 1), Math.max(0, rows.length - size)));
   return { rows: rows.slice(start, start + size), selected: index - start };
-}
-
-function splitInput(input: string, key: Key): Array<{ input: string; key: Key }> {
-  if (key.return || (!input.includes("\r") && !input.includes("\n"))) return [{ input, key }];
-  const parts = input.split(/(\r\n|\n|\r)/);
-  const chunks: Array<{ input: string; key: Key }> = [];
-  for (const part of parts) {
-    if (!part) continue;
-    if (part === "\r" || part === "\n" || part === "\r\n") chunks.push({ input: "", key: { ...key, return: true } });
-    else chunks.push({ input: part, key: { ...key, return: false } });
-  }
-  return chunks.length ? chunks : [{ input, key }];
-}
-
-function toKey(input: string, key: Key): KeyIn {
-  return {
-    input,
-    ctrl: key.ctrl,
-    meta: key.meta,
-    shift: key.shift,
-    return: key.return,
-    escape: key.escape,
-    tab: key.tab,
-    backspace: key.backspace,
-    delete: key.delete,
-    up: key.upArrow,
-    down: key.downArrow,
-    left: key.leftArrow,
-    right: key.rightArrow,
-    pageUp: key.pageUp,
-    pageDown: key.pageDown,
-  };
 }
 
 function shorten(target: string): string {

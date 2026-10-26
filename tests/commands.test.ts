@@ -95,6 +95,20 @@ test("slash menu filters and immediate commands stay available mid-turn", () => 
 
 test("/model, /permissions, and /vim update the session host", async () => {
   const session = host();
+  await runSlashCommand("/model", session);
+  const listed = session.lines.at(-1) ?? "";
+  assert.match(listed, /Model: gpt-4o-mini/);
+  assert.match(listed, /\/model <name>/);
+  assert.match(listed, /Up and down move/);
+  let opened = false;
+  session.openModelPicker = () => {
+    opened = true;
+    return true;
+  };
+  const before = session.lines.length;
+  await runSlashCommand("/model", session);
+  assert.equal(opened, true);
+  assert.equal(session.lines.length, before);
   await runSlashCommand("/model deepseek-chat", session);
   assert.equal(session.model, "deepseek-chat");
   await runSlashCommand("/permissions allow Bash(npm test *)", session);

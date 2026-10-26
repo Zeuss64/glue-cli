@@ -6,6 +6,7 @@ import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { normalizeMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
+import { formatModelStatus } from "./tui/model-picker.js";
 
 export interface SlashCommand {
   name: string;
@@ -44,6 +45,8 @@ export interface CommandHost {
   addRule(kind: "allow" | "deny" | "ask", rule: string): void;
   clear(): void;
   exit(): void;
+  /** Open the interactive model list. Return true when the list is shown. */
+  openModelPicker?(): boolean;
   runTurn(text: string, opts?: { readOnly?: boolean }): Promise<void>;
   compact(instructions: string): Promise<void>;
   btw(question: string): Promise<void>;
@@ -70,7 +73,7 @@ const CATALOG: SlashCommand[] = [
   { name: "exit", aliases: ["quit"], summary: "Exit Glue", available: true },
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
-  { name: "model", summary: "Show or switch the model", available: true },
+  { name: "model", summary: "List models, or set one with /model <name>", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -192,8 +195,10 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
       host.showMemory();
       return;
     case "model":
-      if (!args) host.push(`Model: ${host.model}`);
-      else {
+      if (!args) {
+        if (host.openModelPicker?.()) return;
+        host.push(formatModelStatus(host.model, host.config.protocol, host.config.models));
+      } else {
         host.setModel(args);
         host.push(`Model set to ${args} for this session.`);
       }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
+import { promptSegments } from "./caret.js";
+import { modelWindow, type ModelChoice } from "./model-picker.js";
 import { compactDiff } from "../diff.js";
 import { modeLabel } from "../permissions.js";
 import { displayName } from "../render/format.js";
@@ -148,33 +150,39 @@ export function PromptBox({
   theme,
   text,
   cursor,
+  anchor = null,
   placeholder,
   hint,
 }: {
   theme: Theme;
   text: string;
   cursor: number;
+  anchor?: number | null;
   placeholder?: string;
   hint?: string;
 }) {
-  const before = text.slice(0, cursor);
-  const ch = text[cursor] ?? " ";
-  const after = text.slice(cursor + 1);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    setTick(0);
+    const timer = setInterval(() => setTick((value) => value + 1), 530);
+    return () => clearInterval(timer);
+  }, [text, cursor, anchor]);
+  const parts = promptSegments(text, cursor, anchor, tick);
   const showPlaceholder = text.length === 0 && placeholder;
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} flexShrink={0}>
       {hint ? <Text color={theme.muted}>{hint}</Text> : null}
-      <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1}>
+      <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1} flexShrink={0}>
         <Text>
           <Text color={theme.accent}>{"> "}</Text>
-          {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
-          {showPlaceholder ? null : (
-            <Text color={theme.text}>
-              {before}
-              <Text inverse color={theme.text}>{ch}</Text>
-              {after}
-            </Text>
+          {parts.map((part, index) =>
+            part.inverse ? (
+              <Text key={index} inverse color={theme.text}>{part.text}</Text>
+            ) : (
+              <Text key={index} color={theme.text}>{part.text}</Text>
+            ),
           )}
+          {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
         </Text>
       </Box>
     </Box>
@@ -195,7 +203,7 @@ export function StatusBar({
   const tokens = usage.input + usage.output;
   const tokenLabel = tokens > 0 ? `  ${formatTokens(tokens)} tok` : "";
   return (
-    <Box marginTop={0}>
+    <Box marginTop={0} flexShrink={0}>
       <Text color={theme.muted}>{hint || "? for shortcuts"}{tokenLabel}</Text>
       <Box flexGrow={1} />
       <Text color={theme.mode[mode]}>{modeLabel(mode)}</Text>
@@ -206,6 +214,9 @@ export function StatusBar({
 export function HelpPanel({ theme }: { theme: Theme }) {
   const rows: Array<[string, string]> = [
     ["enter", "send"],
+    ["backspace", "delete the previous character"],
+    ["delete", "delete the next character"],
+    ["shift+arrows", "select, then backspace or delete"],
     ["\\ + enter", "newline"],
     ["shift+tab", "cycle permission mode"],
     ["esc", "interrupt, or deny a prompt"],
@@ -230,6 +241,37 @@ export function HelpPanel({ theme }: { theme: Theme }) {
           <Text color={theme.muted}>{label}</Text>
         </Text>
       ))}
+    </Box>
+  );
+}
+
+export function ModelPicker({
+  theme,
+  choices,
+  selected,
+}: {
+  theme: Theme;
+  choices: ModelChoice[];
+  selected: number;
+}) {
+  const safe = choices.length ? ((selected % choices.length) + choices.length) % choices.length : 0;
+  const view = modelWindow(choices, safe, 8);
+  const current = choices[safe];
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1} flexShrink={0}>
+      <Text bold color={theme.text}>Select model</Text>
+      <Text color={theme.muted}>↑↓ move · enter switch · esc cancel · /model &lt;name&gt; sets any id</Text>
+      {view.rows.map((row, index) => {
+        const on = index === view.selected;
+        return (
+          <Text key={`${row.id}-${index}`} color={on ? theme.accent : theme.text}>
+            {on ? "❯ " : "  "}
+            {row.id}
+            <Text color={theme.muted}>{`  ${row.detail}`}</Text>
+          </Text>
+        );
+      })}
+      <Text color={theme.muted}>{current ? `${safe + 1}/${choices.length}  ${current.id}` : "no models"}</Text>
     </Box>
   );
 }

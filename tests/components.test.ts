@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
+import { Box, Text } from "ink";
 import { render } from "ink-testing-library";
 import test from "node:test";
-import { PermissionDialog, ResumePicker, StatusBar, ToolBlock } from "../src/tui/components.js";
+import { ModelPicker, PermissionDialog, PromptBox, ResumePicker, StatusBar, ToolBlock } from "../src/tui/components.js";
+import { modelChoices } from "../src/tui/model-picker.js";
 import { THEMES } from "../src/tui/theme.js";
 
 const theme = THEMES.ansi;
@@ -72,5 +74,45 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.match(frame, /filter: parse/);
   assert.match(frame, /enter resume/);
   assert.match(frame, /esc cancel/);
+  view.unmount();
+});
+
+test("model picker shows the highlight and the position counter", () => {
+  const choices = modelChoices("gpt-4o-mini", "openai");
+  const view = render(createElement(ModelPicker, { theme, choices, selected: 1 }));
+  const frame = view.lastFrame() ?? "";
+  assert.match(frame, /Select model/);
+  assert.match(frame, /enter switch/);
+  assert.match(frame, /❯/);
+  assert.match(frame, new RegExp(`2/${choices.length}`));
+  assert.match(frame, /gpt-4o/);
+  view.unmount();
+});
+
+test("prompt draws the character under the caret", () => {
+  const view = render(createElement(PromptBox, { theme, text: "你好", cursor: 1, placeholder: "ask" }));
+  const frame = view.lastFrame() ?? "";
+  assert.match(frame, /你/);
+  assert.match(frame, /好/);
+  view.unmount();
+});
+
+test("a fixed frame keeps the prompt when the transcript is long", () => {
+  const lines = Array.from({ length: 80 }, (_, index) => `line ${index}`).join("\n");
+  const view = render(
+    createElement(
+      Box,
+      { flexDirection: "column", height: 12, width: 40, overflow: "hidden" },
+      createElement(
+        Box,
+        { flexGrow: 1, flexShrink: 1, minHeight: 0, overflow: "hidden", flexDirection: "column" },
+        createElement(Text, null, lines),
+      ),
+      createElement(Box, { flexShrink: 0, borderStyle: "round" }, createElement(Text, null, "PROMPT")),
+    ),
+  );
+  const frame = view.lastFrame() ?? "";
+  assert.match(frame, /PROMPT/);
+  assert.ok(frame.split("\n").length <= 12, frame);
   view.unmount();
 });

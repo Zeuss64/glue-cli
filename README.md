@@ -67,6 +67,7 @@ npx glue
 提示符接受普通问题。常用按键：
 
 - Enter 发送，`\` + Enter 换行
+- Backspace 删上一个字（中文和 emoji 一次删完），Delete 删光标后面的字。Shift+方向键先选中，再按 Backspace 或 Delete 删掉选区
 - Shift+Tab 循环权限：`⏸ manual mode on` → `⏵⏵ accept edits on` → `⏸ plan mode on`（若启动时允许 bypass，还会进入 `⏵⏵ bypass permissions on`）
 - Esc 中断当前回合，或拒绝权限框
 - Ctrl+C 先清空输入，再按一次退出；Ctrl+D 在空输入上按两次退出
@@ -118,6 +119,8 @@ Shell 默认关闭。`shell.enabled = true` 或 `GLUE_SHELL=1` 后再使用。
 
 `/help` 列出可用命令。常用：`/clear`、`/compact`、`/model`、`/permissions`、`/plan`、`/status`、`/diff`、`/review`、`/resume`、`/init`（起草 `AGENT.md`）、`/memory`、`/config`、`/doctor`、`/add-dir`、`/theme`、`/vim`、`/rewind`、`/export`、`/bug`。
 
+`/model` 不带参数会打开模型列表：当前模型、配置里的 `models`，以及一组建议。方向键移动高亮（状态行显示 `2/6 · 模型名`），回车切换，Esc 取消。`/model <name>` 直接设置任意模型名，只对本次会话生效。
+
 `/resume` 不带参数打开会话选择器；带 session id 则立刻恢复。`/login`、`/mcp`、`/ide`、`/plugin` 在这个版本里会说明不可用。
 
 回合进行中，`/status`、`/cost`、`/help`、`/model`、`/permissions`、`/theme`、`/exit` 会立刻执行，其它命令排队。
@@ -163,6 +166,8 @@ npm test && npm run typecheck
 Set `GLUE_BASE_URL` and `GLUE_MODEL` for a gateway. `GLUE_PROTOCOL=openai` posts to `…/chat/completions` (`https://host/v1` or a full chat completions URL). `GLUE_PROTOCOL=anthropic` posts to `…/v1/messages` (`https://api.anthropic.com`, a `/v1` root, or a full messages URL) with `x-api-key`, `anthropic-version: 2023-06-01`, and `Authorization: Bearer`. A URL on `*.anthropic.com` or ending in `/messages` selects Anthropic when the protocol is omitted; anything else stays OpenAI. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
 
 Sessions live in `.agent/sessions/`. In the REPL, `/resume` opens a picker of other recent sessions (arrow keys, type to filter, Enter to resume, Esc to cancel). The current session and empty unnamed ones stay off that list. `/resume <session-id>` resumes that session immediately; a unique id, name, or prefix is enough, and an ambiguous prefix opens the picker. From the shell, `glue -c` continues the newest session and `glue --resume <id>` resumes one id.
+
+`/model` opens a list (current model, any `models` from config, and a few suggestions). Up and down move the highlight, Enter switches, Esc cancels. `/model <name>` sets any id for this session. Backspace deletes the previous character, including one CJK character or emoji; Delete removes the next one. Shift+arrows selects, and Backspace or Delete clears that selection.
 
 Profiles are `PROMPT.md` files. `cpld` is an empty stub so the core stays domain-agnostic. Contributors can run `npm run mock` and point `GLUE_BASE_URL` at `http://127.0.0.1:8787/v1`.
 

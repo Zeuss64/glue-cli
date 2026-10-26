@@ -88,6 +88,17 @@ api_key = "file-key-123456"
   assert.ok(cli.permissions.allow.includes("Bash(npm test *)"));
 });
 
+test("config models are offered to the model picker", () => {
+  const cwd = workspace({
+    ".agent/config.toml": `
+model = "from-file"
+models = ["deepseek-chat", "deepseek-reasoner"]
+`,
+  });
+  const config = loadConfig({ cwd, env: {} });
+  assert.deepEqual(config.models, ["deepseek-chat", "deepseek-reasoner"]);
+});
+
 test("shell.allow entries become Bash prefix rules", () => {
   const cwd = workspace({
     "agent.config.json": JSON.stringify({ shell: { enabled: true, allow: ["git status"] }, theme: "light" }),

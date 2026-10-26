@@ -25,6 +25,8 @@ export interface AppConfig {
   theme: "dark" | "light" | "ansi";
   editor: "normal" | "vim";
   outputStyle: "normal" | "concise";
+  /** Extra model ids offered by `/model`, after the current model. */
+  models: string[];
   configPath?: string;
   workspace: string;
 }
@@ -120,6 +122,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
     theme: themeOf(str(merged, "theme")),
     editor: str(merged, "editor") === "vim" ? "vim" : "normal",
     outputStyle: str(merged, "output_style", "outputStyle") === "concise" ? "concise" : "normal",
+    models: stringList(pick(merged, "models")),
     configPath: file.path,
     workspace,
   };
@@ -224,7 +227,12 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function asStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+  return value.filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim());
+}
+
+function stringList(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return asStrings(value);
 }
 
 function themeOf(value: string | undefined): AppConfig["theme"] {
