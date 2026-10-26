@@ -36,7 +36,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
     "dev": "tsx src/cli.ts",
-    "test": "tsx --test tests/**/*.test.ts tests/**/*.test.tsx",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "start": "node dist/cli.js",
     "mock": "node scripts/mock-openai.mjs"
