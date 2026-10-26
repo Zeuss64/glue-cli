@@ -35,6 +35,10 @@ export function diagnose(config: AppConfig): DoctorReport {
     warn: !config.apiKey,
   });
   lines.push({ label: "Base URL", value: config.baseURL });
+  lines.push({
+    label: "Protocol",
+    value: config.protocol === "anthropic" ? "anthropic (messages)" : "openai (chat completions)",
+  });
   lines.push({ label: "Model", value: config.model });
   const profile = loadProfileText(config.profile, config.workspace);
   lines.push({

@@ -7,11 +7,12 @@ import { filterCommands, helpText, isImmediateCommand, runSlashCommand, type Com
 import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
 
-function host(): CommandHost & { lines: string[] } {
+function host(): CommandHost & { lines: string[]; resumed: Array<string | undefined> } {
   const lines: string[] = [];
+  const resumed: Array<string | undefined> = [];
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cmd-"));
   const config = loadConfig({ cwd, env: {} });
-  const value: CommandHost & { lines: string[] } = {
+  const value: CommandHost & { lines: string[]; resumed: Array<string | undefined> } = {
     workspace: cwd,
     config,
     model: config.model,
@@ -28,6 +29,7 @@ function host(): CommandHost & { lines: string[] } {
     rules: emptyRules(),
     tasks: [],
     lines,
+    resumed,
     push(text) {
       lines.push(text);
     },
@@ -67,7 +69,9 @@ function host(): CommandHost & { lines: string[] } {
     async compact() {},
     async btw() {},
     async recap() {},
-    async resume() {},
+    async resume(id) {
+      resumed.push(id);
+    },
     rewind() {},
     branch() {},
     addDir() {},
@@ -102,4 +106,13 @@ test("/model, /permissions, and /vim update the session host", async () => {
   assert.match(session.lines.join("\n"), /Vim mode on/);
   await runSlashCommand("/login", session);
   assert.match(session.lines.at(-1) ?? "", /GLUE_API_KEY/);
+});
+
+test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {
+  const session = host();
+  assert.match(helpText(), /\/resume\s+Open the session picker, or resume an id/);
+  await runSlashCommand("/resume", session);
+  await runSlashCommand("/resume   sess-123", session);
+  await runSlashCommand("/continue older", session);
+  assert.deepEqual(session.resumed, [undefined, "sess-123", "older"]);
 });

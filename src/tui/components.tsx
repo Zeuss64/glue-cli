@@ -274,6 +274,54 @@ export function PermissionDialog({ theme, prompt, selected }: { theme: Theme; pr
   );
 }
 
+export function ResumePicker({
+  theme,
+  rows,
+  selected,
+  query,
+  matchCount,
+  preview,
+}: {
+  theme: Theme;
+  rows: Array<{ id: string; title: string; meta: string }>;
+  selected: number;
+  query: string;
+  matchCount: number;
+  preview: string[];
+}) {
+  const filter = query ? `filter: ${query}` : "filter: type to search";
+  const count = `${matchCount} ${matchCount === 1 ? "session" : "sessions"}`;
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Text bold color={theme.text}>Resume session</Text>
+      <Text color={theme.muted}>{`${filter}  ·  ${count}`}</Text>
+      {rows.length === 0 ? <Text color={theme.muted}>No matching sessions</Text> : null}
+      {rows.map((row, index) => (
+        <Box key={row.id} flexDirection="column">
+          <Text color={index === selected ? theme.accent : theme.text}>
+            {index === selected ? "❯ " : "  "}
+            {row.title}
+          </Text>
+          <Text color={theme.muted}>{`    ${row.meta}`}</Text>
+        </Box>
+      ))}
+      {rows.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={theme.muted}>preview</Text>
+          {preview.length ? (
+            preview.map((line, index) => (
+              <Text key={index} color={theme.text}>{line}</Text>
+            ))
+          ) : (
+            <Text color={theme.muted}>Empty session</Text>
+          )}
+        </Box>
+      ) : null}
+      <Text color={theme.muted}>↑↓ select · enter resume · esc cancel</Text>
+    </Box>
+  );
+}
+
 export function ChoiceDialog({
   theme,
   title,
