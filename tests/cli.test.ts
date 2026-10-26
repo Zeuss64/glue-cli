@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ function run(args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<{ cod
       cwd,
       env: { ...process.env, ...env, NO_COLOR: "1" },
     });
+    child.stdin.end();
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -69,6 +70,68 @@ async function mock(): Promise<{ port: number; stop: () => void }> {
   };
 }
 
+test("help, version, doctor, and a print run with no prompt leave ~/.glue/config.toml missing", async () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "glue-cli-"));
+  const env = { HOME: home };
+  for (const args of [["--help"], ["--version"], ["doctor"], ["-p"]]) {
+    const result = await run(args, env, cwd);
+    if (args[0] === "-p") assert.notEqual(result.code, 0);
+    else assert.equal(result.code, 0, result.stderr);
+  }
+  assert.equal(existsSync(path.join(home, ".glue", "config.toml")), false);
+});
+
+test("a later session reads model, base URL, and api_key from the user file", async () => {
+  const server = await mock();
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const projectA = mkdtempSync(path.join(tmpdir(), "glue-a-"));
+  const projectB = mkdtempSync(path.join(tmpdir(), "glue-b-"));
+  const cleared = {
+    HOME: home,
+    GLUE_API_KEY: "",
+    AGENT_API_KEY: "",
+    OPENAI_API_KEY: "",
+    GLUE_BASE_URL: "",
+    AGENT_BASE_URL: "",
+    OPENAI_BASE_URL: "",
+    GLUE_MODEL: "",
+    AGENT_MODEL: "",
+    OPENAI_MODEL: "",
+    GLUE_PROTOCOL: "",
+    AGENT_PROTOCOL: "",
+  };
+  try {
+    const first = await run(
+      ["-p", "create hello.txt", "--cwd", projectA, "--permission-mode", "acceptEdits"],
+      { ...cleared, GLUE_API_KEY: "test-key-1234", GLUE_BASE_URL: `http://127.0.0.1:${server.port}/v1`, GLUE_MODEL: "mock" },
+      projectA,
+    );
+    assert.equal(first.code, 0, first.stderr);
+    const file = path.join(home, ".glue", "config.toml");
+    assert.match(readFileSync(file, "utf8"), /# api_key = ""/);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /test-key-1234/);
+
+    writeFileSync(
+      file,
+      [
+        'model = "mock"',
+        `base_url = "http://127.0.0.1:${server.port}/v1"`,
+        'api_key = "local-key-1234"',
+        'permission_mode = "acceptEdits"',
+        "",
+      ].join("\n"),
+    );
+    const second = await run(["-p", "create hello.txt", "--cwd", projectB], cleared, projectB);
+    assert.equal(second.code, 0, second.stderr + second.stdout);
+    assert.equal(readFileSync(path.join(projectB, "hello.txt"), "utf8"), "hello from glue\n");
+    assert.match(readFileSync(file, "utf8"), /local-key-1234/);
+    assert.match(readFileSync(file, "utf8"), /model = "mock"/);
+  } finally {
+    server.stop();
+  }
+});
+
 test("glue --version and --help", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cli-"));
   const version = await run(["--version"], {}, cwd);
@@ -93,11 +156,23 @@ test("print mode writes through the mock only when edits are accepted", async ()
     assert.equal(existsSync(path.join(cwd, "hello.txt")), false);
     assert.match(denied.stdout, /Denied|Needs approval/);
 
+    const userConfig = path.join(cwd, ".glue", "config.toml");
+    const created = readFileSync(userConfig, "utf8");
+    assert.match(created, /model = "gpt-4o-mini"/);
+    assert.match(created, /enabled = false/);
+    assert.match(created, /# api_key = ""/);
+    assert.doesNotMatch(created, /test-key-1234/);
+    assert.doesNotMatch(created, /^\s*api_key\s*=/im);
+
+    const custom = 'model = "keep-me"\napi_key = "do-not-touch"\n';
+    writeFileSync(userConfig, custom);
+
     const allowed = await run(["-p", "create hello.txt", "--cwd", cwd, "--permission-mode", "acceptEdits"], env, cwd);
     assert.equal(allowed.code, 0, allowed.stderr);
     assert.match(allowed.stdout, /Write\(hello\.txt\)/);
     assert.match(allowed.stdout, /Created hello\.txt/);
     assert.equal(readFileSync(path.join(cwd, "hello.txt"), "utf8"), "hello from glue\n");
+    assert.equal(readFileSync(userConfig, "utf8"), custom);
   } finally {
     server.stop();
   }

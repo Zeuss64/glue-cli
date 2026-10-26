@@ -133,7 +133,10 @@ Config files, first match wins
   .agent/config.toml
   .agent/config.json
   agent.config.json
-  ~/.glue/config.toml          user defaults, under the project file
+  ~/.glue/config.toml          user defaults, under the project file.
+                               %USERPROFILE%\\.glue\\config.toml on Windows.
+                               Created on the first session if missing.
+                               Optional api_key is local to this machine; do not commit it.
 
 Shell is off until shell.enabled = true. File tools stay inside the workspace.
 `;

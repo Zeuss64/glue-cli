@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, render, Text, useApp, useInput, useStdout } from "ink";
 import type { Key } from "ink";
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
-import type { AppConfig } from "../config.js";
+import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
 import {
   filterCommands,
   gitText,
@@ -99,6 +99,7 @@ type Picker =
   | { kind: "rewind"; rows: Checkpoint[]; selected: number };
 
 export async function startTui(boot: Boot): Promise<void> {
+  ensureGlobalConfigForSession();
   const title = `\x1b]0;Glue ${path.basename(boot.config.workspace)}\x07`;
   process.stdout.write(title);
   const instance = render(<App boot={boot} />, { exitOnCtrlC: false });
