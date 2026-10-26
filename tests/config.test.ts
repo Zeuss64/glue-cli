@@ -123,6 +123,24 @@ test("protocol is explicit first, then inferred from the base URL", () => {
   assert.throws(() => loadConfig({ cwd, env: { GLUE_PROTOCOL: "grpc" } }), /openai or anthropic/);
 });
 
+test("models and effort load from config, and GLUE_EFFORT wins", () => {
+  const cwd = workspace({
+    ".agent/config.toml": `
+models = ["claude-sonnet-4-5", "gpt-4o"]
+effort = "high"
+`,
+  });
+  const loaded = loadConfig({ cwd, env: {} });
+  assert.deepEqual(loaded.models, ["claude-sonnet-4-5", "gpt-4o"]);
+  assert.equal(loaded.effort, "high");
+  const csv = workspace({ ".agent/config.json": `{ "models": "a, b", "effort": "nope" }` });
+  const loose = loadConfig({ cwd: csv, env: {} });
+  assert.deepEqual(loose.models, ["a", "b"]);
+  assert.equal(loose.effort, "auto");
+  assert.equal(loadConfig({ cwd, env: { GLUE_EFFORT: "max" } }).effort, "max");
+  assert.equal(loadConfig({ cwd, env: {} }).effort, "high");
+});
+
 test("the user config path is under the home directory on Unix and Windows", () => {
   assert.equal(globalConfigPath("/home/ada", path.posix.join), "/home/ada/.glue/config.toml");
   assert.equal(globalConfigPath("C:\\Users\\ada", path.win32.join), "C:\\Users\\ada\\.glue\\config.toml");

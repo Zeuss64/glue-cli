@@ -69,6 +69,8 @@ async function completeChat(
     stream: true,
     stream_options: { include_usage: true },
   };
+  // Chat Completions does not get `reasoning_effort`. Effort is session state
+  // unless the protocol is Anthropic, which sends `output_config.effort`.
   if (tools.length) {
     body.tools = tools.map((tool) => ({
       type: "function",

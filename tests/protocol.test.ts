@@ -157,6 +157,57 @@ test("anthropic JSON responses and an explicit openai override still route", asy
   assert.equal(openaiUrl, "https://api.anthropic.com/chat/completions");
 });
 
+test("effort is output_config on Anthropic and omitted for chat completions", async () => {
+  let anthropicBody: Record<string, unknown> = {};
+  const anthropicFetch: typeof fetch = async (_input, init) => {
+    anthropicBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ type: "message", content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  await createLlmClient({
+    baseURL: "https://api.anthropic.com",
+    apiKey: "test-key",
+    model: "claude-test",
+    temperature: 0,
+    maxTokens: 8,
+    effort: "high",
+    fetchImpl: anthropicFetch,
+  }).stream([{ role: "user", content: "hi" }], [], undefined, () => {});
+  assert.deepEqual(anthropicBody.output_config, { effort: "high" });
+
+  anthropicBody = {};
+  await createLlmClient({
+    baseURL: "https://api.anthropic.com",
+    apiKey: "test-key",
+    model: "claude-test",
+    temperature: 0,
+    maxTokens: 8,
+    effort: "auto",
+    fetchImpl: anthropicFetch,
+  }).stream([{ role: "user", content: "hi" }], [], undefined, () => {});
+  assert.equal("output_config" in anthropicBody, false);
+
+  let openaiBody: Record<string, unknown> = {};
+  const openaiFetch: typeof fetch = async (_input, init) => {
+    openaiBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  await createLlmClient({
+    baseURL: "https://api.openai.com/v1",
+    apiKey: "test-key",
+    model: "gpt-4o-mini",
+    temperature: 0,
+    maxTokens: 8,
+    effort: "high",
+    fetchImpl: openaiFetch,
+  }).stream([{ role: "user", content: "hi" }], [], undefined, () => {});
+  assert.equal("reasoning_effort" in openaiBody, false);
+  assert.equal("output_config" in openaiBody, false);
+});
+
 test("anthropic client names the same key env vars when the key is missing", async () => {
   const client = createLlmClient({
     baseURL: "https://api.anthropic.com",

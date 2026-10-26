@@ -12,6 +12,7 @@ export interface SessionMeta {
   permissionMode: string;
   createdAt: string;
   updatedAt: string;
+  effort?: string;
 }
 
 export interface SessionSnapshot {
@@ -36,6 +37,7 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     permissionMode: partial.permissionMode,
     createdAt: now,
     updatedAt: now,
+    ...(partial.effort ? { effort: partial.effort } : {}),
   };
   const file = path.join(sessionsDir(workspace), `${meta.id}.jsonl`);
   mkdirSync(path.dirname(file), { recursive: true });

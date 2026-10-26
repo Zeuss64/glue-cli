@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import test from "node:test";
-import { PermissionDialog, ResumePicker, StatusBar, ToolBlock } from "../src/tui/components.js";
+import { ModelPicker, PermissionDialog, ResumePicker, StatusBar, ToolBlock } from "../src/tui/components.js";
 import { THEMES } from "../src/tui/theme.js";
 
 const theme = THEMES.ansi;
@@ -14,6 +14,12 @@ test("status bar and permission dialog use the Glue labels", () => {
   assert.match(status.lastFrame() ?? "", /accept edits on/);
   assert.match(status.lastFrame() ?? "", /12 tok/);
   status.unmount();
+
+  const effortStatus = render(
+    createElement(StatusBar, { theme, mode: "default", usage: { input: 0, output: 0 }, effort: "high" }),
+  );
+  assert.match(effortStatus.lastFrame() ?? "", /effort high/);
+  effortStatus.unmount();
 
   const dialog = render(
     createElement(PermissionDialog, {
@@ -73,4 +79,21 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.match(frame, /enter resume/);
   assert.match(frame, /esc cancel/);
   view.unmount();
+
+  const models = render(
+    createElement(ModelPicker, {
+      theme,
+      rows: ["solo"],
+      selected: 0,
+      position: "1/1 · solo",
+      effort: "auto",
+    }),
+  );
+  const modelFrame = models.lastFrame() ?? "";
+  assert.match(modelFrame, /1\/1 · solo/);
+  assert.match(modelFrame, /❯\s+solo/);
+  assert.match(modelFrame, /enter select/);
+  assert.match(modelFrame, /esc cancel/);
+  assert.match(modelFrame, /effort auto/);
+  models.unmount();
 });
