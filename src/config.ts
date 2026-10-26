@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { normalizeEffort, type EffortLevel } from "./effort.js";
 import { resolveProtocol, type ApiProtocol } from "./llm/protocol.js";
 import { emptyRules, normalizeMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules } from "./types.js";
@@ -25,6 +26,10 @@ export interface AppConfig {
   theme: "dark" | "light" | "ansi";
   editor: "normal" | "vim";
   outputStyle: "normal" | "concise";
+  /** Extra model ids for `/model`, after the current model. */
+  models: string[];
+  /** `auto` omits provider effort fields. */
+  effort: EffortLevel;
   configPath?: string;
   workspace: string;
 }
@@ -122,6 +127,10 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
     theme: themeOf(str(merged, "theme")),
     editor: str(merged, "editor") === "vim" ? "vim" : "normal",
     outputStyle: str(merged, "output_style", "outputStyle") === "concise" ? "concise" : "normal",
+    models: readModels(pick(merged, "models")),
+    effort:
+      normalizeEffort(env.GLUE_EFFORT || env.AGENT_EFFORT || str(merged, "effort", "effort_level", "effortLevel")) ??
+      "auto",
     configPath: file.path,
     workspace,
   };
@@ -155,6 +164,8 @@ export function defaultGlobalConfigToml(): string {
 model = "${DEFAULTS.model}"
 base_url = "${DEFAULTS.baseURL}"
 # protocol = "openai"
+# models = ["gpt-4o-mini"]
+# effort = "auto"
 
 permission_mode = "${DEFAULTS.permissionMode}"
 profile = "${DEFAULTS.profile}"
@@ -299,6 +310,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function asStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+}
+
+function readModels(value: unknown): string[] {
+  if (typeof value === "string") return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
+  return asStrings(value);
 }
 
 function themeOf(value: string | undefined): AppConfig["theme"] {

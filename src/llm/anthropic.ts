@@ -1,3 +1,4 @@
+import { anthropicOutputConfig } from "../effort.js";
 import type { ChatMessage, LlmDelta, LlmResult, ToolCall, ToolDef } from "../types.js";
 import type { ApiClientOptions } from "./protocol.js";
 import { messagesEndpoint } from "./protocol.js";
@@ -56,6 +57,8 @@ async function completeMessages(
   };
   if (shaped.system) body.system = shaped.system;
   if (tools.length) body.tools = tools.map(anthropicTool);
+  const outputConfig = anthropicOutputConfig(opts.effort);
+  if (outputConfig) body.output_config = outputConfig;
   const timeout = AbortSignal.timeout(180_000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const response = await fetchImpl(messagesEndpoint(opts.baseURL), {

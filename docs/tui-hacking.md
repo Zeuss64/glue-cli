@@ -18,7 +18,9 @@ After any code change, run `npm test` and `npm run typecheck` from the repositor
 | `src/tui/caret.ts` | Blinking inverse-block caret and selection segments. |
 | `src/tui/viewport.ts` | Frame height, column width, and which transcript rows fit. |
 | `src/tui/theme.ts` | `dark`, `light`, and `ansi` color sets. |
-| `src/commands.ts` | Slash commands, including `/model` and `/resume`. |
+| `src/tui/model-picker.ts` | Model list order, `N/M` hint, and up/down/left/right reducer. |
+| `src/effort.ts` | Effort levels and the Anthropic `output_config` helper. |
+| `src/commands.ts` | Slash commands, including `/model`, `/effort`, and `/resume`. |
 | `tests/input.test.ts` | Decoded keys and editor edits. |
 | `tests/viewport.test.ts` | Frame size and long-output clipping. |
 | `tests/more.test.ts` | Shift+Tab, `?` help, and submit. |
@@ -58,9 +60,19 @@ Fullscreen and a resized window use the same helper. A 30-row window becomes a 2
 
 ## `/model`
 
-There is no model picker. `/model` with no arguments prints `Model: <id>`. `/model <name>` calls `host.setModel` in `src/tui/app.tsx` and lasts for this session only. The command lives in the `case "model"` branch of `runSlashCommand` in `src/commands.ts`. Up and down on a normal prompt are history, not a model list.
+`ModelPicker` in `src/tui/components.tsx` is the list. It uses `flexShrink={0}`. Drive it from `handleKey` in `app.tsx`. Read `pickerRef.current` or `modelDraftRef.current`, not React state, so a key in the same stdin chunk is not stale. Update the ref and state together, the way `setPickerBoth` does for `/resume`. Do not also call Ink `useInput`.
 
-If you add a picker, put the list component in `src/tui/components.tsx` and drive it from `handleKey` in `app.tsx`. Read `pickerRef.current`, not React state, so a key in the same stdin chunk is not stale. Update the ref and state together, the way `setPickerBoth` does for `/resume`. Give the list `flexShrink={0}`. Do not also call Ink `useInput`. Arrow keys should move the highlight only while the picker is open, and Esc or Ctrl+C should close it. `/model <name>` should still set the model directly. Add tests for the reducer or command; do not rely on a manual keypress.
+The draft `/model` (no trailing text) opens the list, including when there is only one id. Up and down move the highlight. Enter selects. Esc or Ctrl+C closes it and clears the draft. Left and right change effort and do not move the prompt cursor. `/model <id>` still calls `setModel` and does not open the list. Submitting `/model` with no id calls `openModelPicker` when the host provides it.
+
+Order is `modelChoices`: the current model, then `models` from config, then `SUGGESTED_MODELS`. Each id appears once. The position line is `N/M · id` from `modelPosition` (`2/6 · name`, or `1/1 · id` for a single row). Cover the reducer in `tests/model-picker.test.ts`.
+
+## `/effort`
+
+Levels are `auto`, `low`, `medium`, `high`, `xhigh`, and `max` (`EFFORT_CYCLE` in `src/effort.ts`). `/effort` or `/effort status` prints the level. `/effort <level>` sets it for the session. `auto` is the model default.
+
+The status line shows `effort <level>`. The same value is stored on the session meta and read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`.
+
+Anthropic requests send `output_config.effort` only when the level is not `auto`. OpenAI Chat Completions do not get `reasoning_effort`. Keep that split in `src/llm/anthropic.ts` and `src/llm/client.ts`.
 
 ## Windows input
 
@@ -101,6 +113,8 @@ Extend `tests/input.test.ts` when you add a sequence. Assert both the decoded `K
 - One Backspace removes one CJK character, one emoji, or one supplementary-plane character (`\u{20000}`).
 - Ctrl+A remains "start of line".
 - `/resume` still opens the picker for other recent sessions and skips the current session and empty unnamed ones.
+- `/model` with no id still opens a list when only one model is configured. `/model <id>` still sets that id directly.
+- Effort `auto` still omits `output_config` and never adds `reasoning_effort` to a chat completion.
 - `scripts/postbuild.mjs` still skips `chmod` on `win32`. Do not add a bare `chmod` to `npm run build`.
 - API keys stay out of generated config and out of commits. See the README for `~/.glue/config.toml`.
 - Do not import or transcribe source from another coding-agent product. Match behavior from this file and the tests.

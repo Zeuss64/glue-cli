@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, render, Text, useApp, useStdout } from "ink";
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
+import { normalizeEffort, type EffortLevel } from "../effort.js";
 import {
   filterCommands,
   gitText,
@@ -44,6 +45,7 @@ import {
   ChoiceDialog,
   Header,
   HelpPanel,
+  ModelPicker,
   PermissionDialog,
   PromptBox,
   ResumePicker,
@@ -54,6 +56,7 @@ import {
   TranscriptView,
   Welcome,
 } from "./components.js";
+import { isModelDraft, modelPosition, modelWindow, openModelPicker, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
 import { NAMED_ACCENTS, THEMES, type Theme } from "./theme.js";
 
 export interface Boot {
@@ -97,6 +100,7 @@ type Phase =
   | { type: "plan"; plan: string; selected: number; resolve: (answer: { approved: boolean; feedback?: string }) => void };
 
 type Picker =
+  | { kind: "model"; state: ModelPickerState }
   | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
   | { kind: "rewind"; rows: Checkpoint[]; selected: number };
 
@@ -119,6 +123,7 @@ function App({ boot }: { boot: Boot }) {
   const [editor, setEditorState] = useState<EditorState>(() => emptyEditor(boot.config.editor === "vim"));
   const [mode, setModeState] = useState<PermissionMode>(boot.config.permissionMode);
   const [model, setModelState] = useState(boot.config.model);
+  const [effort, setEffortState] = useState<EffortLevel>(boot.config.effort);
   const [profile, setProfileState] = useState(boot.config.profile);
   const [themeName, setThemeName] = useState(boot.config.theme);
   const [accent, setAccent] = useState<string | undefined>(undefined);
@@ -138,6 +143,8 @@ function App({ boot }: { boot: Boot }) {
   const [sessionName, setSessionName] = useState("");
   const [picker, setPicker] = useState<Picker | null>(null);
   const pickerRef = useRef<Picker | null>(null);
+  const [modelDraft, setModelDraft] = useState<ModelPickerState | null>(null);
+  const modelDraftRef = useRef<ModelPickerState | null>(null);
   const [rev, setRev] = useState<{ query: string; index: number; prev: EditorState } | null>(null);
   const [branch, setBranch] = useState<string | undefined>(() => gitBranch(boot.config.workspace));
   const [cwdLabel, setCwdLabel] = useState(() => shorten(boot.config.workspace));
@@ -146,6 +153,7 @@ function App({ boot }: { boot: Boot }) {
   const messagesRef = useRef<ChatMessage[]>([]);
   const modeRef = useRef(mode);
   const modelRef = useRef(model);
+  const effortRef = useRef(effort);
   const profileRef = useRef(profile);
   const styleRef = useRef(outputStyle);
   const shellRef = useRef(shellEnabled);
@@ -196,6 +204,7 @@ function App({ boot }: { boot: Boot }) {
 
   modeRef.current = mode;
   modelRef.current = model;
+  effortRef.current = effort;
   profileRef.current = profile;
   styleRef.current = outputStyle;
   shellRef.current = shellEnabled;
@@ -246,11 +255,27 @@ function App({ boot }: { boot: Boot }) {
     setPicker(next);
   }
 
+  function rememberEffort(level: EffortLevel): void {
+    effortRef.current = level;
+    setEffortState(level);
+    logRef.current?.updateMeta({ effort: level });
+  }
+
+  function freshModelPicker(): ModelPickerState {
+    return openModelPicker(modelRef.current, boot.config.models ?? [], effortRef.current);
+  }
+
+  function closeModelDraft(): void {
+    modelDraftRef.current = null;
+    setModelDraft(null);
+  }
+
   const hostRef = useRef<CommandHost>(null as unknown as CommandHost);
   hostRef.current = {
     workspace: workspaceRef.current,
-    config: { ...boot.config, model, permissionMode: mode, profile, workspace: workspaceRef.current, shellEnabled, outputStyle, theme: themeName },
+    config: { ...boot.config, model, effort, permissionMode: mode, profile, workspace: workspaceRef.current, shellEnabled, outputStyle, theme: themeName },
     model,
+    effort,
     permissionMode: mode,
     profile,
     themeName,
@@ -269,6 +294,12 @@ function App({ boot }: { boot: Boot }) {
       setModelState(next);
       logRef.current?.updateMeta({ model: next });
     },
+    openModelPicker: () => {
+      closeModelDraft();
+      commitEditor(emptyEditor(editorRef.current.vim));
+      setPickerBoth({ kind: "model", state: freshModelPicker() });
+    },
+    setEffort: (level) => rememberEffort(level),
     setMode: (next) => {
       modeRef.current = next;
       setModeState(next);
@@ -320,6 +351,7 @@ function App({ boot }: { boot: Boot }) {
         model: modelRef.current,
         profile: profileRef.current,
         permissionMode: modeRef.current,
+        effort: effortRef.current,
       });
       logRef.current = log;
       messagesRef.current = [];
@@ -386,6 +418,7 @@ function App({ boot }: { boot: Boot }) {
         model: modelRef.current,
         profile: profileRef.current,
         permissionMode: modeRef.current,
+        effort: effortRef.current,
         name: name || `${sessionName || "branch"}`,
       });
       for (const message of messagesRef.current) log.message(message);
@@ -478,6 +511,8 @@ function App({ boot }: { boot: Boot }) {
       modelRef.current = snap.meta.model;
       setModelState(snap.meta.model);
     }
+    const resumedEffort = normalizeEffort(snap.meta.effort);
+    if (resumedEffort) rememberEffort(resumedEffort);
     if (snap.meta.profile) {
       profileRef.current = snap.meta.profile;
       setProfileState(snap.meta.profile);
@@ -543,7 +578,7 @@ function App({ boot }: { boot: Boot }) {
       : [{ role: "system", content: "You are Glue, a concise coding assistant." }];
     messages.push({ role: "user", content: instruction });
     let text = "";
-    const result = await createLlmClient({ ...boot.config, model: modelRef.current }).stream(messages, [], undefined, (delta) => {
+    const result = await createLlmClient({ ...boot.config, model: modelRef.current, effort: effortRef.current }).stream(messages, [], undefined, (delta) => {
       if (delta.text) text += delta.text;
       if (delta.usage) setUsage((current) => ({ input: current.input + delta.usage!.input, output: current.output + delta.usage!.output }));
     });
@@ -591,7 +626,7 @@ function App({ boot }: { boot: Boot }) {
     let assistantId: string | null = null;
     try {
       await runAgentTurn({
-        client: createLlmClient({ ...boot.config, model: modelRef.current }),
+        client: createLlmClient({ ...boot.config, model: modelRef.current, effort: effortRef.current }),
         messages: messagesRef.current,
         tools: toolDefinitions(shellRef.current),
         ctx: ctxRef.current,
@@ -741,6 +776,7 @@ function App({ boot }: { boot: Boot }) {
         model: boot.config.model,
         profile: boot.config.profile,
         permissionMode: boot.config.permissionMode,
+        effort: boot.config.effort,
       });
       rebuildSystem();
     }
@@ -769,7 +805,11 @@ function App({ boot }: { boot: Boot }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const slashMatches = editor.text.startsWith("/") && !editor.text.slice(1).includes(" ") ? filterCommands(editor.text.slice(1)) : [];
+  const slashMatches =
+    editor.text.startsWith("/") && !editor.text.slice(1).includes(" ") && !isModelDraft(editor.text)
+      ? filterCommands(editor.text.slice(1))
+      : [];
+  const modelList = picker?.kind === "model" ? picker.state : modelDraft;
   const resumeView = picker?.kind === "resume" ? resumePickerView(picker.state) : null;
   const mention = mentionQuery(editor.text, editor.cursor);
   const fileHits = mention ? completePath(files, mention.query) : [];
@@ -786,7 +826,7 @@ function App({ boot }: { boot: Boot }) {
   if (showTodos && todos.length) extraLines += 1 + todos.length;
   if (slashMatches.length) extraLines += Math.min(6, slashMatches.length);
   if (fileHits.length) extraLines += Math.min(6, fileHits.length);
-  if (picker) extraLines += 12;
+  if (picker || modelList) extraLines += 12;
   if (phase.type === "permission" || phase.type === "ask" || phase.type === "plan") extraLines += 10;
   const visible = useMemo(
     () => visibleTranscript(items, scroll, termCols, transcriptBudget(termRows, extraLines), expanded),
@@ -806,6 +846,34 @@ function App({ boot }: { boot: Boot }) {
     if (pickerRef.current) {
       handlePicker(k);
       return;
+    }
+    if (isModelDraft(editorRef.current.text)) {
+      const draft = modelDraftRef.current ?? freshModelPicker();
+      modelDraftRef.current = draft;
+      if (k.up || k.down || k.left || k.right || k.return || k.escape || (k.ctrl && k.input === "c")) {
+        const next = reduceModelPicker(draft, {
+          up: k.up,
+          down: k.down,
+          left: k.left,
+          right: k.right,
+          return: k.return,
+          escape: k.escape,
+          ctrlC: k.ctrl && k.input === "c",
+        });
+        if (next.effect?.type === "cancel" || next.effect?.type === "select") {
+          closeModelDraft();
+          commitEditor(emptyEditor(editorRef.current.vim));
+          if (next.effect.type === "select") {
+            hostRef.current.setModel(next.effect.model);
+            system(`Model set to ${next.effect.model} for this session.`);
+          }
+          return;
+        }
+        if (next.effect?.type === "effort") rememberEffort(next.effect.effort);
+        modelDraftRef.current = next.state;
+        setModelDraft(next.state);
+        return;
+      }
     }
     if (rev) {
       handleRev(k);
@@ -833,6 +901,13 @@ function App({ boot }: { boot: Boot }) {
     }
     const result = reduceEditor(editorRef.current, k);
     commitEditor(result.state);
+    if (isModelDraft(result.state.text)) {
+      if (!modelDraftRef.current) {
+        const state = freshModelPicker();
+        modelDraftRef.current = state;
+        setModelDraft(state);
+      }
+    } else if (modelDraftRef.current) closeModelDraft();
     const slashQuery = result.state.text.startsWith("/") ? result.state.text.slice(1) : "";
     if (slashQuery && !slashQuery.includes(" ") && !k.up && !k.down) setSlashIndex(0);
     if (!result.effect) return;
@@ -900,6 +975,30 @@ function App({ boot }: { boot: Boot }) {
     if (!current) return;
     if (key.escape || (key.ctrl && key.input === "c")) {
       setPickerBoth(null);
+      return;
+    }
+    if (current.kind === "model") {
+      const next = reduceModelPicker(current.state, {
+        up: key.up,
+        down: key.down,
+        left: key.left,
+        right: key.right,
+        return: key.return,
+        escape: key.escape,
+        ctrlC: key.ctrl && key.input === "c",
+      });
+      if (next.effect?.type === "cancel") {
+        setPickerBoth(null);
+        return;
+      }
+      if (next.effect?.type === "select") {
+        setPickerBoth(null);
+        hostRef.current.setModel(next.effect.model);
+        system(`Model set to ${next.effect.model} for this session.`);
+        return;
+      }
+      if (next.effect?.type === "effort") rememberEffort(next.effect.effort);
+      setPickerBoth({ kind: "model", state: next.state });
       return;
     }
     if (current.kind === "rewind") {
@@ -1179,6 +1278,15 @@ function App({ boot }: { boot: Boot }) {
           selected={picker.selected}
         />
       ) : null}
+      {modelList ? (
+        <ModelPicker
+          theme={theme}
+          rows={modelWindow(modelList.items, modelList.selected).rows}
+          selected={modelWindow(modelList.items, modelList.selected).selected}
+          position={modelPosition(modelList)}
+          effort={modelList.effort}
+        />
+      ) : null}
       {resumeView ? (
         <ResumePicker
           theme={theme}
@@ -1237,7 +1345,13 @@ function App({ boot }: { boot: Boot }) {
         placeholder={placeholder}
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
-      <StatusBar theme={theme} mode={mode} usage={usage} hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"} />
+      <StatusBar
+        theme={theme}
+        mode={mode}
+        usage={usage}
+        effort={effort}
+        hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"}
+      />
     </Box>
   );
 }

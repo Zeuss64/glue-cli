@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
+import { EFFORT_CYCLE, normalizeEffort, type EffortLevel } from "./effort.js";
 import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { normalizeMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
@@ -33,6 +34,10 @@ export interface CommandHost {
   tasks: Array<{ id: string; command: string; status: string }>;
   push(text: string, kind?: "system" | "error"): void;
   setModel(model: string): void;
+  /** Present in the TUI. `/model` with no id opens the picker instead of printing the id. */
+  openModelPicker?(): void;
+  effort?: EffortLevel;
+  setEffort?(level: EffortLevel): void;
   setMode(mode: PermissionMode): void;
   setProfile(profile: string): void;
   setTheme(theme: "dark" | "light" | "ansi"): void;
@@ -70,7 +75,8 @@ const CATALOG: SlashCommand[] = [
   { name: "exit", aliases: ["quit"], summary: "Exit Glue", available: true },
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
-  { name: "model", summary: "Show or switch the model", available: true },
+  { name: "model", summary: "Open the model list, or /model <id> to set one", available: true },
+  { name: "effort", summary: "Show or set effort: low, medium, high, xhigh, max, auto", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -109,7 +115,7 @@ const CATALOG: SlashCommand[] = [
   { name: "install-github-app", summary: "GitHub app", available: false, note: "GitHub app install is not in this build." },
 ];
 
-const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "permissions", "theme"]);
+const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "effort", "permissions", "theme"]);
 
 export function commandCatalog(): SlashCommand[] {
   return CATALOG;
@@ -192,11 +198,16 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
       host.showMemory();
       return;
     case "model":
-      if (!args) host.push(`Model: ${host.model}`);
-      else {
+      if (!args) {
+        if (host.openModelPicker) host.openModelPicker();
+        else host.push(`Model: ${host.model}`);
+      } else {
         host.setModel(args);
         host.push(`Model set to ${args} for this session.`);
       }
+      return;
+    case "effort":
+      applyEffort(args, host);
       return;
     case "permissions":
       applyPermissions(args, host);
@@ -212,6 +223,7 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
           `Glue Cli ${host.sessionId}`,
           `Name:       ${host.sessionName || "(unnamed)"}`,
           `Model:      ${host.model}`,
+          `Effort:     ${host.effort ?? "auto"}`,
           `Mode:       ${host.permissionMode}`,
           `Profile:    ${host.profile}`,
           `Shell:      ${host.shellEnabled ? "enabled" : "disabled"}`,
@@ -322,6 +334,7 @@ function applyConfig(args: string, host: CommandHost): void {
     host.push(
       [
         `model=${host.model}`,
+        `effort=${host.effort ?? "auto"}`,
         `permission_mode=${host.permissionMode}`,
         `profile=${host.profile}`,
         `theme=${host.themeName}`,
@@ -331,7 +344,7 @@ function applyConfig(args: string, host: CommandHost): void {
         `protocol=${host.config.protocol}`,
         `base_url=${host.config.baseURL}`,
         `config=${host.config.configPath ?? "(defaults)"}`,
-        "Set one with /config key=value. Keys: model, permission_mode, profile, theme, editor, output_style, shell.",
+        "Set one with /config key=value. Keys: model, effort, permission_mode, profile, theme, editor, output_style, shell.",
       ].join("\n"),
     );
     return;
@@ -344,7 +357,14 @@ function applyConfig(args: string, host: CommandHost): void {
   const key = args.slice(0, eq).trim();
   const value = args.slice(eq + 1).trim();
   if (key === "model") host.setModel(value);
-  else if (key === "permission_mode" || key === "mode") host.setMode(normalizeMode(value));
+  else if (key === "effort") {
+    const level = normalizeEffort(value);
+    if (!level || !host.setEffort) {
+      host.push(`Usage: /config effort=${EFFORT_CYCLE.join("|")}`, "error");
+      return;
+    }
+    host.setEffort(level);
+  } else if (key === "permission_mode" || key === "mode") host.setMode(normalizeMode(value));
   else if (key === "profile") host.setProfile(value);
   else if (key === "theme" && (value === "dark" || value === "light" || value === "ansi")) host.setTheme(value);
   else if (key === "editor" && (value === "vim" || value === "normal")) host.setEditor(value);
@@ -355,6 +375,20 @@ function applyConfig(args: string, host: CommandHost): void {
     return;
   }
   host.push(`Set ${key}=${value} for this session.`);
+}
+
+function applyEffort(args: string, host: CommandHost): void {
+  if (!args || args.toLowerCase() === "status") {
+    host.push(`Effort: ${host.effort ?? "auto"}`);
+    return;
+  }
+  const level = normalizeEffort(args);
+  if (!level || !host.setEffort) {
+    host.push(`Usage: /effort ${EFFORT_CYCLE.join("|")}`, "error");
+    return;
+  }
+  host.setEffort(level);
+  host.push(level === "auto" ? "Effort reset to auto (model default)." : `Effort set to ${level}.`);
 }
 
 function applyPermissions(args: string, host: CommandHost): void {

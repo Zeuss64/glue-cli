@@ -95,8 +95,11 @@ test("slash menu filters and immediate commands stay available mid-turn", () => 
 
 test("/model, /permissions, and /vim update the session host", async () => {
   const session = host();
+  await runSlashCommand("/model", session);
+  assert.match(session.lines.at(-1) ?? "", /^Model: /);
   await runSlashCommand("/model deepseek-chat", session);
   assert.equal(session.model, "deepseek-chat");
+  assert.equal(isImmediateCommand("/effort"), true);
   await runSlashCommand("/permissions allow Bash(npm test *)", session);
   assert.ok(session.rules.allow.includes("Bash(npm test *)"));
   await runSlashCommand("/permissions mode plan", session);
@@ -106,6 +109,36 @@ test("/model, /permissions, and /vim update the session host", async () => {
   assert.match(session.lines.join("\n"), /Vim mode on/);
   await runSlashCommand("/login", session);
   assert.match(session.lines.at(-1) ?? "", /GLUE_API_KEY/);
+});
+
+test("/model with no id opens the picker, and /effort reads and sets a level", async () => {
+  const session = host();
+  let opened = 0;
+  session.openModelPicker = () => {
+    opened += 1;
+  };
+  session.setEffort = (level) => {
+    session.effort = level;
+  };
+  await runSlashCommand("/model", session);
+  await runSlashCommand("/model  custom-id", session);
+  assert.equal(opened, 1);
+  assert.equal(session.model, "custom-id");
+  assert.match(session.lines.at(-1) ?? "", /Model set to custom-id/);
+  await runSlashCommand("/effort", session);
+  assert.match(session.lines.at(-1) ?? "", /Effort: auto/);
+  await runSlashCommand("/effort status", session);
+  assert.match(session.lines.at(-1) ?? "", /Effort: auto/);
+  await runSlashCommand("/effort HIGH", session);
+  assert.equal(session.effort, "high");
+  assert.match(session.lines.at(-1) ?? "", /Effort set to high/);
+  await runSlashCommand("/effort auto", session);
+  assert.equal(session.effort, "auto");
+  assert.match(session.lines.at(-1) ?? "", /model default/);
+  await runSlashCommand("/effort nope", session);
+  assert.match(session.lines.at(-1) ?? "", /Usage: \/effort/);
+  await runSlashCommand("/status", session);
+  assert.match(session.lines.at(-1) ?? "", /Effort:\s+auto/);
 });
 
 test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {

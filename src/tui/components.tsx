@@ -197,17 +197,20 @@ export function StatusBar({
   mode,
   usage,
   hint,
+  effort,
 }: {
   theme: Theme;
   mode: PermissionMode;
   usage: TokenUsage;
   hint?: string;
+  effort?: string;
 }) {
   const tokens = usage.input + usage.output;
   const tokenLabel = tokens > 0 ? `  ${formatTokens(tokens)} tok` : "";
+  const effortLabel = effort ? ` · effort ${effort}` : "";
   return (
     <Box marginTop={0} flexShrink={0}>
-      <Text color={theme.muted}>{hint || "? for shortcuts"}{tokenLabel}</Text>
+      <Text color={theme.muted}>{hint || "? for shortcuts"}{effortLabel}{tokenLabel}</Text>
       <Box flexGrow={1} />
       <Text color={theme.mode[mode]}>{modeLabel(mode)}</Text>
     </Box>
@@ -233,6 +236,8 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["# note", "append to AGENT.md"],
     ["@path", "attach a file"],
     ["/", "commands"],
+    ["/model", "model list · ←→ effort"],
+    ["/effort", "low, medium, high, xhigh, max, auto"],
   ];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
@@ -331,6 +336,34 @@ export function ResumePicker({
         </Box>
       ) : null}
       <Text color={theme.muted}>↑↓ select · enter resume · esc cancel</Text>
+    </Box>
+  );
+}
+
+export function ModelPicker({
+  theme,
+  rows,
+  selected,
+  position,
+  effort,
+}: {
+  theme: Theme;
+  rows: string[];
+  selected: number;
+  position: string;
+  effort: string;
+}) {
+  return (
+    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Text bold color={theme.text}>Model</Text>
+      <Text color={theme.muted}>{position}</Text>
+      {rows.map((row, index) => (
+        <Text key={`${row}:${index}`} color={index === selected ? theme.accent : theme.text}>
+          {index === selected ? "❯ " : "  "}
+          {row}
+        </Text>
+      ))}
+      <Text color={theme.muted}>{`↑↓ model · ←→ effort ${effort} · enter select · esc cancel`}</Text>
     </Box>
   );
 }

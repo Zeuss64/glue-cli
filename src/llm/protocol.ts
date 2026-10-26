@@ -9,6 +9,8 @@ export interface ApiClientOptions {
   headers?: Record<string, string>;
   fetchImpl?: typeof fetch;
   protocol?: ApiProtocol;
+  /** `auto` or empty omits the field. Named levels go to Anthropic `output_config.effort`. */
+  effort?: string;
 }
 
 /** Explicit `openai` or `anthropic` wins. Otherwise infer from a URL that names one style. */

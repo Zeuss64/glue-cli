@@ -13,7 +13,10 @@ test("README points at the TUI guide, and the guide names the current entry poin
   assert.match(doc, /PromptBox/);
   assert.match(doc, /useConsoleInput/);
   assert.match(doc, /frameSize/);
-  assert.match(doc, /There is no model picker/);
+  assert.match(doc, /ModelPicker/);
+  assert.match(doc, /\/effort/);
+  assert.match(doc, /output_config/);
+  assert.doesNotMatch(doc, /There is no model picker/);
   assert.match(doc, /flexShrink=\{0\}/);
   assert.match(doc, /npm test/);
   assert.match(doc, /Windows Terminal/);
