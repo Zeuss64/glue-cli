@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+npm-debug.log*
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+.agent/sessions/
+.agent/prompt-history.jsonl
+.agent/feedback/
+.agent/last-response.md
+coverage/
