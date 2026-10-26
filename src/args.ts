@@ -133,7 +133,8 @@ Config files, first match wins
   .agent/config.toml
   .agent/config.json
   agent.config.json
-  ~/.glue/config.toml          user defaults, under the project file
+  ~/.glue/config.toml          user defaults, under the project file.
+                               Created on the first session if missing. Never stores API keys.
 
 Shell is off until shell.enabled = true. File tools stay inside the workspace.
 `;

@@ -1,5 +1,5 @@
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "./agent/loop.js";
-import type { AppConfig } from "./config.js";
+import { ensureGlobalConfigForSession, type AppConfig } from "./config.js";
 import { createLlmClient } from "./llm/client.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { displayName } from "./render/format.js";
@@ -20,6 +20,7 @@ export async function runPrint(opts: {
   readOnly?: boolean;
   messages?: ChatMessage[];
 }): Promise<number> {
+  ensureGlobalConfigForSession();
   const json = opts.output === "json";
   const sandbox = new Sandbox([opts.config.workspace]);
   const ctx: ToolContext = {

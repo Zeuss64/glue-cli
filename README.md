@@ -46,7 +46,9 @@ profile = "default"
 enabled = false
 ```
 
-`protocol` 也可以写在配置里，或用 `--protocol`。未指定时：主机名是 `api.anthropic.com`（或 `*.anthropic.com`），或路径以 `/messages` 结尾，用 Anthropic；路径含 `/chat/completions` 用 OpenAI；其余默认 OpenAI。密钥只放在环境变量里。
+首次进入对话（交互会话或 `glue -p`）时，如果还没有 `~/.glue/config.toml`，会写入上面这份默认内容。已经存在的文件不会被覆盖。API 密钥不会写入该文件，只放在环境变量里。
+
+`protocol` 也可以写在配置里，或用 `--protocol`。未指定时：主机名是 `api.anthropic.com`（或 `*.anthropic.com`），或路径以 `/messages` 结尾，用 Anthropic；路径含 `/chat/completions` 用 OpenAI；其余默认 OpenAI。
 
 | 协议 | `base_url` |
 | --- | --- |
@@ -159,6 +161,8 @@ npx glue
 npx glue doctor
 npm test && npm run typecheck
 ```
+
+The first interactive session or `glue -p` run creates `~/.glue/config.toml` with the defaults above when that file is missing. An existing file is left unchanged, and API keys are never written into it.
 
 Set `GLUE_BASE_URL` and `GLUE_MODEL` for a gateway. `GLUE_PROTOCOL=openai` posts to `…/chat/completions` (`https://host/v1` or a full chat completions URL). `GLUE_PROTOCOL=anthropic` posts to `…/v1/messages` (`https://api.anthropic.com`, a `/v1` root, or a full messages URL) with `x-api-key`, `anthropic-version: 2023-06-01`, and `Authorization: Bearer`. A URL on `*.anthropic.com` or ending in `/messages` selects Anthropic when the protocol is omitted; anything else stays OpenAI. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
 

@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadConfig, redactKey } from "../src/config.js";
+import {
+  defaultGlobalConfigToml,
+  ensureGlobalConfig,
+  ensureGlobalConfigForSession,
+  globalConfigPath,
+  loadConfig,
+  redactKey,
+} from "../src/config.js";
 
 function workspace(files: Record<string, string> = {}): string {
   const dir = mkdtempSync(path.join(tmpdir(), "glue-cfg-"));
@@ -113,6 +120,76 @@ test("protocol is explicit first, then inferred from the base URL", () => {
     "anthropic",
   );
   assert.throws(() => loadConfig({ cwd, env: { GLUE_PROTOCOL: "grpc" } }), /openai or anthropic/);
+});
+
+test("a session creates ~/.glue/config.toml once, with defaults and no API key", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const file = globalConfigPath(home);
+  assert.equal(existsSync(file), false);
+
+  const created = ensureGlobalConfig(home);
+  assert.equal(created.created, true);
+  assert.equal(created.path, file);
+  const text = readFileSync(file, "utf8");
+  assert.equal(text, defaultGlobalConfigToml());
+  assert.match(text, /model = "gpt-4o-mini"/);
+  assert.match(text, /base_url = "https:\/\/api\.openai\.com\/v1"/);
+  assert.match(text, /permission_mode = "default"/);
+  assert.match(text, /\[shell\]\s+enabled = false/);
+  assert.doesNotMatch(text, /^\s*(api_key|apiKey)\s*=/im);
+  assert.doesNotMatch(text, /secret-key-9999|sk-/);
+
+  const loaded = loadConfig({
+    cwd: home,
+    home,
+    env: { GLUE_API_KEY: "secret-key-9999", GLUE_MODEL: "from-env" },
+  });
+  assert.equal(loaded.model, "from-env");
+  assert.equal(loaded.apiKey, "secret-key-9999");
+  assert.equal(loaded.apiKeySource, "GLUE_API_KEY");
+  assert.equal(loaded.baseURL, "https://api.openai.com/v1");
+  assert.equal(loaded.permissionMode, "default");
+  assert.equal(loaded.profile, "default");
+  assert.equal(loaded.shellEnabled, false);
+  assert.doesNotMatch(readFileSync(file, "utf8"), /secret-key-9999/);
+
+  const fromFile = loadConfig({ cwd: home, home, env: {} });
+  assert.equal(fromFile.model, "gpt-4o-mini");
+  assert.equal(fromFile.apiKey, undefined);
+
+  const custom = 'model = "keep-me"\napi_key = "do-not-touch"\n';
+  writeFileSync(file, custom);
+  const again = ensureGlobalConfig(home);
+  assert.equal(again.created, false);
+  assert.equal(readFileSync(file, "utf8"), custom);
+
+  writeFileSync(file, "");
+  assert.equal(ensureGlobalConfig(home).created, false);
+  assert.equal(readFileSync(file, "utf8"), "");
+});
+
+test("project config still overrides the generated user file", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const cwd = workspace({
+    ".agent/config.toml": `
+model = "from-project"
+base_url = "https://project.example/v1"
+`,
+  });
+  ensureGlobalConfig(home);
+  const config = loadConfig({ cwd, home, env: {} });
+  assert.equal(config.model, "from-project");
+  assert.equal(config.baseURL, "https://project.example/v1");
+  assert.equal(config.shellEnabled, false);
+  assert.equal(config.apiKey, undefined);
+});
+
+test("a failed user-config write does not throw from the session hook", () => {
+  const home = path.join(mkdtempSync(path.join(tmpdir(), "glue-home-")), "not-a-directory");
+  writeFileSync(home, "file");
+  assert.throws(() => ensureGlobalConfig(home));
+  assert.doesNotThrow(() => ensureGlobalConfigForSession(home));
+  assert.equal(existsSync(path.join(home, ".glue", "config.toml")), false);
 });
 
 test("redactKey hides all but the last four characters", () => {

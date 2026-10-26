@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
@@ -40,6 +40,8 @@ export interface ConfigInput {
   configPath?: string;
   allowedTools?: string[];
   shellEnabled?: boolean;
+  /** Home used for `~/.glue/config.toml`. Defaults to `os.homedir()`. */
+  home?: string;
 }
 
 const DEFAULTS = {
@@ -57,7 +59,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
   const env = input.env ?? process.env;
   const workspace = path.resolve(input.cwd ?? process.cwd());
   const file = readProjectConfig(workspace, input.configPath);
-  const user = readOptional(path.join(homedir(), ".glue", "config.toml"));
+  const user = readOptional(globalConfigPath(input.home ?? homedir()));
   const merged = { ...user.values, ...file.values };
 
   const model =
@@ -123,6 +125,55 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
     configPath: file.path,
     workspace,
   };
+}
+
+/** Path of the user-level config, `~/.glue/config.toml`. */
+export function globalConfigPath(home = homedir()): string {
+  return path.join(home, ".glue", "config.toml");
+}
+
+/** Stock user config. Defaults only — no API key, no environment overrides. */
+export function defaultGlobalConfigToml(): string {
+  return `# Glue user defaults. Project files and environment variables override this file.
+# API keys are never stored here. Set GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY.
+
+model = "${DEFAULTS.model}"
+base_url = "${DEFAULTS.baseURL}"
+permission_mode = "${DEFAULTS.permissionMode}"
+profile = "${DEFAULTS.profile}"
+
+[shell]
+enabled = false
+`;
+}
+
+/**
+ * Create the user config when it is missing.
+ * An existing file is left untouched, including an empty one.
+ */
+export function ensureGlobalConfig(home = homedir()): { path: string; created: boolean } {
+  const file = globalConfigPath(home);
+  const text = defaultGlobalConfigToml();
+  if (/^\s*(api_key|apiKey)\s*=/im.test(text)) {
+    throw new Error("refusing to write an API key into the user config");
+  }
+  mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    writeFileSync(file, text, { encoding: "utf8", flag: "wx" });
+    return { path: file, created: true };
+  } catch (error) {
+    if (isErrno(error, "EEXIST")) return { path: file, created: false };
+    throw error;
+  }
+}
+
+/** Create the user config at session start. A failure must not stop the session. */
+export function ensureGlobalConfigForSession(home = homedir()): void {
+  try {
+    ensureGlobalConfig(home);
+  } catch {
+    /* a missing user config must not stop the session */
+  }
 }
 
 export function redactKey(key: string | undefined): string {
@@ -234,6 +285,10 @@ function themeOf(value: string | undefined): AppConfig["theme"] {
 
 function stripSlash(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === code);
 }
 
 export { emptyRules };

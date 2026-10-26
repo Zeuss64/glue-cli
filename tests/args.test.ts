@@ -37,6 +37,7 @@ test("version, help, and unknown flags", () => {
   assert.match(cliHelp(), /Glue Cli/);
   assert.match(cliHelp(), /glue -p/);
   assert.match(cliHelp(), /\/resume <id> resumes that session/);
+  assert.match(cliHelp(), /Never stores API keys/);
   assert.throws(() => parseArgs(["--nope"]));
   assert.throws(() => parseArgs(["--model"]));
   const skip = parseArgs(["--yes"]);
