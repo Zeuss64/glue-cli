@@ -9,6 +9,7 @@ import {
   ensureGlobalConfigForSession,
   globalConfigPath,
   loadConfig,
+  loadSessionConfig,
   redactKey,
 } from "../src/config.js";
 
@@ -122,47 +123,82 @@ test("protocol is explicit first, then inferred from the base URL", () => {
   assert.throws(() => loadConfig({ cwd, env: { GLUE_PROTOCOL: "grpc" } }), /openai or anthropic/);
 });
 
-test("a session creates ~/.glue/config.toml once, with defaults and no API key", () => {
+test("the user config path is under the home directory on Unix and Windows", () => {
+  assert.equal(globalConfigPath("/home/ada", path.posix.join), "/home/ada/.glue/config.toml");
+  assert.equal(globalConfigPath("C:\\Users\\ada", path.win32.join), "C:\\Users\\ada\\.glue\\config.toml");
+});
+
+test("the first session writes placeholders, then later sessions reuse the file", () => {
   const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
   const file = globalConfigPath(home);
+  const firstProject = workspace();
   assert.equal(existsSync(file), false);
 
-  const created = ensureGlobalConfig(home);
-  assert.equal(created.created, true);
-  assert.equal(created.path, file);
+  const loaded = loadSessionConfig({
+    cwd: firstProject,
+    home,
+    env: {
+      GLUE_API_KEY: "secret-key-9999",
+      GLUE_MODEL: "from-env",
+      GLUE_BASE_URL: "https://env.example/v1",
+      GLUE_PROTOCOL: "openai",
+    },
+  });
+  assert.equal(loaded.model, "from-env");
+  assert.equal(loaded.baseURL, "https://env.example/v1");
+  assert.equal(loaded.apiKey, "secret-key-9999");
+  assert.equal(loaded.apiKeySource, "GLUE_API_KEY");
   const text = readFileSync(file, "utf8");
   assert.equal(text, defaultGlobalConfigToml());
   assert.match(text, /model = "gpt-4o-mini"/);
   assert.match(text, /base_url = "https:\/\/api\.openai\.com\/v1"/);
+  assert.match(text, /# protocol = "openai"/);
+  assert.match(text, /# api_key = ""/);
   assert.match(text, /permission_mode = "default"/);
   assert.match(text, /\[shell\]\s+enabled = false/);
   assert.doesNotMatch(text, /^\s*(api_key|apiKey)\s*=/im);
-  assert.doesNotMatch(text, /secret-key-9999|sk-/);
+  assert.doesNotMatch(text, /secret-key-9999|from-env|env\.example/);
 
-  const loaded = loadConfig({
-    cwd: home,
-    home,
-    env: { GLUE_API_KEY: "secret-key-9999", GLUE_MODEL: "from-env" },
-  });
-  assert.equal(loaded.model, "from-env");
-  assert.equal(loaded.apiKey, "secret-key-9999");
-  assert.equal(loaded.apiKeySource, "GLUE_API_KEY");
-  assert.equal(loaded.baseURL, "https://api.openai.com/v1");
-  assert.equal(loaded.permissionMode, "default");
-  assert.equal(loaded.profile, "default");
-  assert.equal(loaded.shellEnabled, false);
-  assert.doesNotMatch(readFileSync(file, "utf8"), /secret-key-9999/);
-
-  const fromFile = loadConfig({ cwd: home, home, env: {} });
+  const fromFile = loadConfig({ cwd: firstProject, home, env: {} });
   assert.equal(fromFile.model, "gpt-4o-mini");
+  assert.equal(fromFile.baseURL, "https://api.openai.com/v1");
+  assert.equal(fromFile.protocol, "openai");
   assert.equal(fromFile.apiKey, undefined);
+
+  const saved = [
+    'model = "kept-model"',
+    'base_url = "https://api.anthropic.com"',
+    'protocol = "anthropic"',
+    'api_key = "local-key-1234"',
+    "",
+  ].join("\n");
+  writeFileSync(file, saved);
+  const secondProject = workspace();
+  const again = loadSessionConfig({ cwd: secondProject, home, env: {} });
+  assert.equal(again.model, "kept-model");
+  assert.equal(again.baseURL, "https://api.anthropic.com");
+  assert.equal(again.protocol, "anthropic");
+  assert.equal(again.apiKey, "local-key-1234");
+  assert.equal(again.apiKeySource, "config file");
+  assert.equal(readFileSync(file, "utf8"), saved);
+
+  writeFileSync(file, 'api_key = ""\nmodel = "gpt-4o-mini"\nbase_url = "https://api.openai.com/v1"\n');
+  assert.equal(loadConfig({ cwd: secondProject, home, env: {} }).apiKey, undefined);
+
+  const fromEnv = loadSessionConfig({
+    cwd: secondProject,
+    home,
+    env: { GLUE_API_KEY: "env-key-1234" },
+  });
+  assert.equal(fromEnv.apiKey, "env-key-1234");
+  assert.equal(fromEnv.apiKeySource, "GLUE_API_KEY");
+  assert.equal(fromEnv.model, "gpt-4o-mini");
+  assert.doesNotMatch(readFileSync(file, "utf8"), /env-key-1234/);
 
   const custom = 'model = "keep-me"\napi_key = "do-not-touch"\n';
   writeFileSync(file, custom);
-  const again = ensureGlobalConfig(home);
-  assert.equal(again.created, false);
+  assert.equal(ensureGlobalConfig(home).created, false);
   assert.equal(readFileSync(file, "utf8"), custom);
-
   writeFileSync(file, "");
   assert.equal(ensureGlobalConfig(home).created, false);
   assert.equal(readFileSync(file, "utf8"), "");

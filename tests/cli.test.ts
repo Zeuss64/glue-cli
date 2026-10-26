@@ -82,6 +82,56 @@ test("help, version, doctor, and a print run with no prompt leave ~/.glue/config
   assert.equal(existsSync(path.join(home, ".glue", "config.toml")), false);
 });
 
+test("a later session reads model, base URL, and api_key from the user file", async () => {
+  const server = await mock();
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const projectA = mkdtempSync(path.join(tmpdir(), "glue-a-"));
+  const projectB = mkdtempSync(path.join(tmpdir(), "glue-b-"));
+  const cleared = {
+    HOME: home,
+    GLUE_API_KEY: "",
+    AGENT_API_KEY: "",
+    OPENAI_API_KEY: "",
+    GLUE_BASE_URL: "",
+    AGENT_BASE_URL: "",
+    OPENAI_BASE_URL: "",
+    GLUE_MODEL: "",
+    AGENT_MODEL: "",
+    OPENAI_MODEL: "",
+    GLUE_PROTOCOL: "",
+    AGENT_PROTOCOL: "",
+  };
+  try {
+    const first = await run(
+      ["-p", "create hello.txt", "--cwd", projectA, "--permission-mode", "acceptEdits"],
+      { ...cleared, GLUE_API_KEY: "test-key-1234", GLUE_BASE_URL: `http://127.0.0.1:${server.port}/v1`, GLUE_MODEL: "mock" },
+      projectA,
+    );
+    assert.equal(first.code, 0, first.stderr);
+    const file = path.join(home, ".glue", "config.toml");
+    assert.match(readFileSync(file, "utf8"), /# api_key = ""/);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /test-key-1234/);
+
+    writeFileSync(
+      file,
+      [
+        'model = "mock"',
+        `base_url = "http://127.0.0.1:${server.port}/v1"`,
+        'api_key = "local-key-1234"',
+        'permission_mode = "acceptEdits"',
+        "",
+      ].join("\n"),
+    );
+    const second = await run(["-p", "create hello.txt", "--cwd", projectB], cleared, projectB);
+    assert.equal(second.code, 0, second.stderr + second.stdout);
+    assert.equal(readFileSync(path.join(projectB, "hello.txt"), "utf8"), "hello from glue\n");
+    assert.match(readFileSync(file, "utf8"), /local-key-1234/);
+    assert.match(readFileSync(file, "utf8"), /model = "mock"/);
+  } finally {
+    server.stop();
+  }
+});
+
 test("glue --version and --help", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cli-"));
   const version = await run(["--version"], {}, cwd);
@@ -110,7 +160,9 @@ test("print mode writes through the mock only when edits are accepted", async ()
     const created = readFileSync(userConfig, "utf8");
     assert.match(created, /model = "gpt-4o-mini"/);
     assert.match(created, /enabled = false/);
-    assert.doesNotMatch(created, /test-key-1234|api_key\s*=/i);
+    assert.match(created, /# api_key = ""/);
+    assert.doesNotMatch(created, /test-key-1234/);
+    assert.doesNotMatch(created, /^\s*api_key\s*=/im);
 
     const custom = 'model = "keep-me"\napi_key = "do-not-touch"\n';
     writeFileSync(userConfig, custom);

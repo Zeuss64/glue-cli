@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs, cliHelp } from "./args.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, loadSessionConfig } from "./config.js";
 import { diagnose, formatDoctor } from "./doctor.js";
 import { runPrint } from "./print.js";
 import { findSessionFile, latestSessionFile, loadSession } from "./session.js";
@@ -36,25 +36,23 @@ async function main(): Promise<void> {
     }
     process.chdir(cwd);
   }
-  let config;
-  try {
-    config = loadConfig({
-      cwd,
-      model: args.model,
-      baseURL: args.baseURL,
-      protocol: args.protocol,
-      permissionMode: args.permissionMode,
-      profile: args.profile,
-      configPath: args.configPath,
-      allowedTools: args.allowedTools,
-    });
-  } catch (error) {
-    console.error(`glue: ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
-    return;
-  }
+  const configInput = {
+    cwd,
+    model: args.model,
+    baseURL: args.baseURL,
+    protocol: args.protocol,
+    permissionMode: args.permissionMode,
+    profile: args.profile,
+    configPath: args.configPath,
+    allowedTools: args.allowedTools,
+  };
   if (args.doctor) {
-    console.log(formatDoctor(diagnose(config)));
+    try {
+      console.log(formatDoctor(diagnose(loadConfig(configInput))));
+    } catch (error) {
+      console.error(`glue: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -91,6 +89,14 @@ async function main(): Promise<void> {
       const snap = loadSession(resumeFile);
       messages = snap.messages.filter((message) => message.role !== "system");
     }
+    let config;
+    try {
+      config = loadSessionConfig(configInput);
+    } catch (error) {
+      console.error(`glue: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+      return;
+    }
     process.exitCode = await runPrint({
       config,
       prompt,
@@ -101,6 +107,14 @@ async function main(): Promise<void> {
   }
   if (!process.stdin.isTTY) {
     console.error("glue: no terminal attached. Use glue -p \"...\" for print mode.");
+    process.exitCode = 1;
+    return;
+  }
+  let config;
+  try {
+    config = loadSessionConfig(configInput);
+  } catch (error) {
+    console.error(`glue: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
     return;
   }

@@ -46,7 +46,9 @@ profile = "default"
 enabled = false
 ```
 
-首次进入对话（交互会话或 `glue -p`）时，如果还没有 `~/.glue/config.toml`，会写入上面这份默认内容。已经存在的文件不会被覆盖。API 密钥不会写入该文件，只放在环境变量里。
+首次进入对话（交互会话或 `glue -p`）时，如果还没有用户配置，会创建它并立刻按里面的默认值加载。路径是 `~/.glue/config.toml`；Windows 上是 `%USERPROFILE%\.glue\config.toml`。已有文件不会被覆盖。
+
+这份文件对所有项目生效，所以 `model`、`base_url`、`protocol` 写一次即可，不必每次再 export。密钥优先放在环境变量里。也可以在该文件里取消 `api_key` 那一行的注释，只保存在这台机器上。不要把密钥写进项目配置再提交。自动创建的文件只放注释占位，不会写入当前环境里的密钥。
 
 `protocol` 也可以写在配置里，或用 `--protocol`。未指定时：主机名是 `api.anthropic.com`（或 `*.anthropic.com`），或路径以 `/messages` 结尾，用 Anthropic；路径含 `/chat/completions` 用 OpenAI；其余默认 OpenAI。
 
@@ -162,7 +164,7 @@ npx glue doctor
 npm test && npm run typecheck
 ```
 
-The first interactive session or `glue -p` run creates `~/.glue/config.toml` with the defaults above when that file is missing. An existing file is left unchanged, and API keys are never written into it.
+The first interactive session or `glue -p` run creates the user config if it is missing, then loads it. The path is `~/.glue/config.toml` (`%USERPROFILE%\.glue\config.toml` on Windows). An existing file is left unchanged. `model`, `base_url`, and `protocol` in that file apply to every later `glue` session, in any project, without exporting them again. Prefer `GLUE_API_KEY`, `AGENT_API_KEY`, or `OPENAI_API_KEY` for the key. You can also uncomment `api_key` in the user file for this machine only. Do not commit a key in project config. The generated file has a commented placeholder and does not copy a key out of the environment.
 
 Set `GLUE_BASE_URL` and `GLUE_MODEL` for a gateway. `GLUE_PROTOCOL=openai` posts to `…/chat/completions` (`https://host/v1` or a full chat completions URL). `GLUE_PROTOCOL=anthropic` posts to `…/v1/messages` (`https://api.anthropic.com`, a `/v1` root, or a full messages URL) with `x-api-key`, `anthropic-version: 2023-06-01`, and `Authorization: Bearer`. A URL on `*.anthropic.com` or ending in `/messages` selects Anthropic when the protocol is omitted; anything else stays OpenAI. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
 

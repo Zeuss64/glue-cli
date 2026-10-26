@@ -127,18 +127,35 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
   };
 }
 
-/** Path of the user-level config, `~/.glue/config.toml`. */
-export function globalConfigPath(home = homedir()): string {
-  return path.join(home, ".glue", "config.toml");
+/** Path of the user-level config. Unix `~/.glue/config.toml`, Windows `%USERPROFILE%\.glue\config.toml`. */
+export function globalConfigPath(
+  home = homedir(),
+  join: (...parts: string[]) => string = path.join,
+): string {
+  return join(home, ".glue", "config.toml");
 }
 
-/** Stock user config. Defaults only — no API key, no environment overrides. */
+/**
+ * Stock user config for every project on this machine.
+ * Model and base URL are real defaults. `api_key` and `protocol` are comments
+ * until the user sets them. The template never contains a live key.
+ */
 export function defaultGlobalConfigToml(): string {
-  return `# Glue user defaults. Project files and environment variables override this file.
-# API keys are never stored here. Set GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY.
+  return `# Glue settings for this user account. Shared by every project.
+# Unix: ~/.glue/config.toml
+# Windows: %USERPROFILE%\\.glue\\config.toml
+# Flags, environment variables, and project config override this file.
+# Do not copy this file into a repository.
+#
+# Prefer an environment variable for the API key:
+#   GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY
+# Or uncomment the next line and set it for this machine only:
+# api_key = ""
 
 model = "${DEFAULTS.model}"
 base_url = "${DEFAULTS.baseURL}"
+# protocol = "openai"
+
 permission_mode = "${DEFAULTS.permissionMode}"
 profile = "${DEFAULTS.profile}"
 
@@ -174,6 +191,12 @@ export function ensureGlobalConfigForSession(home = homedir()): void {
   } catch {
     /* a missing user config must not stop the session */
   }
+}
+
+/** Create the user config when it is missing, then load it. */
+export function loadSessionConfig(input: ConfigInput = {}): AppConfig {
+  ensureGlobalConfigForSession(input.home);
+  return loadConfig(input);
 }
 
 export function redactKey(key: string | undefined): string {
