@@ -2,12 +2,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { resolveProtocol, type ApiProtocol } from "./llm/protocol.js";
 import { emptyRules, normalizeMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules } from "./types.js";
 
 export interface AppConfig {
   model: string;
   baseURL: string;
+  protocol: ApiProtocol;
   apiKey?: string;
   apiKeySource?: string;
   permissionMode: PermissionMode;
@@ -32,6 +34,7 @@ export interface ConfigInput {
   env?: NodeJS.ProcessEnv;
   model?: string;
   baseURL?: string;
+  protocol?: string;
   permissionMode?: string;
   profile?: string;
   configPath?: string;
@@ -67,6 +70,10 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
       str(merged, "base_url", "baseURL") ||
       DEFAULTS.baseURL,
   );
+  const protocol = resolveProtocol(
+    input.protocol || env.GLUE_PROTOCOL || env.AGENT_PROTOCOL || str(merged, "protocol", "api_protocol"),
+    baseURL,
+  );
   const key = resolveKey(env, merged);
   const modeRaw =
     input.permissionMode ||
@@ -97,6 +104,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
   return {
     model,
     baseURL,
+    protocol,
     apiKey: key?.value,
     apiKeySource: key?.source,
     permissionMode: normalizeMode(modeRaw),

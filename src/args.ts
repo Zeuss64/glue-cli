@@ -9,6 +9,7 @@ export interface CliArgs {
   cwd?: string;
   model?: string;
   baseURL?: string;
+  protocol?: string;
   permissionMode?: string;
   dangerouslySkip: boolean;
   allowBypass: boolean;
@@ -55,6 +56,7 @@ export function parseArgs(argv: string[]): CliArgs {
     else if (token === "--cwd") args.cwd = take(token);
     else if (token === "--model" || token === "-m") args.model = take(token);
     else if (token === "--base-url") args.baseURL = take(token);
+    else if (token === "--protocol" || token === "--api-protocol") args.protocol = take(token);
     else if (token === "--permission-mode") args.permissionMode = take(token);
     else if (token === "--dangerously-skip-permissions" || token === "--yes") args.dangerouslySkip = true;
     else if (token === "--allow-dangerously-skip-permissions") args.allowBypass = true;
@@ -92,9 +94,11 @@ Usage
   glue "fix the failing test"  interactive, send the first prompt
   glue -p "summarize src"      print mode, then exit
   glue run "summarize src"     same as -p
-  glue -c                      resume the newest session
-  glue --resume <id>           resume a session
+  glue -c                      continue the newest session
+  glue --resume <id>           resume a session from the shell
   glue doctor                  check config, key, and workspace
+
+In the interactive session, /resume opens a picker and /resume <id> resumes that session.
 
 Options
   -p, --print                  non-interactive print mode
@@ -102,7 +106,8 @@ Options
   --resume <id>                resume a session id or name
   --cwd <dir>                  workspace root (default: current directory)
   --model <name>               model id
-  --base-url <url>             OpenAI-compatible base URL
+  --base-url <url>             OpenAI or Anthropic base URL
+  --protocol <name>            openai or anthropic (default: infer from the URL)
   --permission-mode <mode>     default | acceptEdits | plan | dontAsk | bypassPermissions
   --dangerously-skip-permissions
                                start in bypass mode
@@ -120,6 +125,7 @@ Options
 Environment
   GLUE_API_KEY, AGENT_API_KEY, OPENAI_API_KEY
   GLUE_BASE_URL, AGENT_BASE_URL, OPENAI_BASE_URL
+  GLUE_PROTOCOL, AGENT_PROTOCOL    openai or anthropic
   GLUE_MODEL, AGENT_MODEL, OPENAI_MODEL
   GLUE_PERMISSION_MODE, GLUE_PROFILE, GLUE_SHELL
 
