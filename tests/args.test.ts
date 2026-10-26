@@ -34,6 +34,7 @@ test("version, help, and unknown flags", () => {
   assert.equal(parseArgs(["run", "do the thing"]).prompt, "do the thing");
   assert.match(cliHelp(), /Glue Cli/);
   assert.match(cliHelp(), /glue -p/);
+  assert.match(cliHelp(), /\/resume <id> resumes that session/);
   assert.throws(() => parseArgs(["--nope"]));
   assert.throws(() => parseArgs(["--model"]));
   const skip = parseArgs(["--yes"]);

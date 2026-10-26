@@ -76,7 +76,7 @@ const CATALOG: SlashCommand[] = [
   { name: "status", summary: "Session status", available: true },
   { name: "diff", summary: "Show the git working tree diff", available: true },
   { name: "review", aliases: ["code-review"], summary: "Read-only review of the current diff", available: true },
-  { name: "resume", aliases: ["continue"], summary: "Resume an earlier session", available: true },
+  { name: "resume", aliases: ["continue"], summary: "Open the session picker, or resume an id", available: true },
   { name: "export", summary: "Write the transcript to a markdown file", available: true },
   { name: "rename", summary: "Name the current session", available: true },
   { name: "context", summary: "Rough token use against the context window", available: true },
