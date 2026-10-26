@@ -328,6 +328,7 @@ function applyConfig(args: string, host: CommandHost): void {
         `editor=${host.editor}`,
         `output_style=${host.outputStyle}`,
         `shell=${host.shellEnabled}`,
+        `protocol=${host.config.protocol}`,
         `base_url=${host.config.baseURL}`,
         `config=${host.config.configPath ?? "(defaults)"}`,
         "Set one with /config key=value. Keys: model, permission_mode, profile, theme, editor, output_style, shell.",

@@ -98,6 +98,23 @@ test("shell.allow entries become Bash prefix rules", () => {
   assert.ok(config.permissions.allow.includes("Bash(git status *)"));
 });
 
+test("protocol is explicit first, then inferred from the base URL", () => {
+  const cwd = workspace();
+  assert.equal(loadConfig({ cwd, env: {}, baseURL: "https://api.anthropic.com" }).protocol, "anthropic");
+  assert.equal(loadConfig({ cwd, env: {}, baseURL: "https://example.com/v1/messages" }).protocol, "anthropic");
+  assert.equal(loadConfig({ cwd, env: {}, baseURL: "https://example.com/v1/chat/completions" }).protocol, "openai");
+  assert.equal(loadConfig({ cwd, env: {}, baseURL: "https://example.com/v1" }).protocol, "openai");
+  assert.equal(
+    loadConfig({ cwd, env: { GLUE_PROTOCOL: "openai" }, baseURL: "https://api.anthropic.com" }).protocol,
+    "openai",
+  );
+  assert.equal(
+    loadConfig({ cwd, env: { GLUE_PROTOCOL: "openai" }, baseURL: "https://example.com/v1", protocol: "anthropic" }).protocol,
+    "anthropic",
+  );
+  assert.throws(() => loadConfig({ cwd, env: { GLUE_PROTOCOL: "grpc" } }), /openai or anthropic/);
+});
+
 test("redactKey hides all but the last four characters", () => {
   assert.equal(redactKey(undefined), "missing");
   assert.equal(redactKey("short"), "set");

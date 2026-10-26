@@ -16,7 +16,7 @@ import {
 } from "../commands.js";
 import { listProjectFiles, completePath } from "../files.js";
 import { createId } from "../id.js";
-import { createOpenAIClient } from "../llm/client.js";
+import { createLlmClient } from "../llm/client.js";
 import { expandMentions, mentionQuery } from "../mentions.js";
 import { nextMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
@@ -540,7 +540,7 @@ function App({ boot }: { boot: Boot }) {
       : [{ role: "system", content: "You are Glue, a concise coding assistant." }];
     messages.push({ role: "user", content: instruction });
     let text = "";
-    const result = await createOpenAIClient({ ...boot.config, model: modelRef.current }).stream(messages, [], undefined, (delta) => {
+    const result = await createLlmClient({ ...boot.config, model: modelRef.current }).stream(messages, [], undefined, (delta) => {
       if (delta.text) text += delta.text;
       if (delta.usage) setUsage((current) => ({ input: current.input + delta.usage!.input, output: current.output + delta.usage!.output }));
     });
@@ -588,7 +588,7 @@ function App({ boot }: { boot: Boot }) {
     let assistantId: string | null = null;
     try {
       await runAgentTurn({
-        client: createOpenAIClient({ ...boot.config, model: modelRef.current }),
+        client: createLlmClient({ ...boot.config, model: modelRef.current }),
         messages: messagesRef.current,
         tools: toolDefinitions(shellRef.current),
         ctx: ctxRef.current,

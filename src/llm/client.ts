@@ -1,4 +1,6 @@
 import type { ChatMessage, LlmDelta, LlmResult, ToolCall, ToolDef } from "../types.js";
+import { createAnthropicClient } from "./anthropic.js";
+import { resolveProtocol, type ApiClientOptions } from "./protocol.js";
 import { consumeSse } from "./sse.js";
 
 export interface LlmClient {
@@ -34,6 +36,12 @@ export function createOpenAIClient(opts: OpenAIClientOptions): LlmClient {
       return completeChat(opts, fetchImpl, messages, tools, signal, onDelta);
     },
   };
+}
+
+export function createLlmClient(opts: ApiClientOptions): LlmClient {
+  const protocol = resolveProtocol(opts.protocol, opts.baseURL);
+  if (protocol === "anthropic") return createAnthropicClient(opts);
+  return createOpenAIClient(opts);
 }
 
 export function chatEndpoint(baseURL: string): string {
