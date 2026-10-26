@@ -71,6 +71,7 @@ npx glue
 提示符接受普通问题。常用按键：
 
 - Enter 发送，`\` + Enter 换行
+- Backspace 删上一个字（中文和 emoji 一次删完），Delete 删光标后面的字。Shift+方向键先选中，再按 Backspace 或 Delete 删掉选区
 - Shift+Tab 循环权限：`⏸ manual mode on` → `⏵⏵ accept edits on` → `⏸ plan mode on`（若启动时允许 bypass，还会进入 `⏵⏵ bypass permissions on`）
 - Esc 中断当前回合，或拒绝权限框
 - Ctrl+C 先清空输入，再按一次退出；Ctrl+D 在空输入上按两次退出
@@ -94,6 +95,8 @@ npx glue
 - `/resume <session-id>` 立刻恢复该会话。id、名称，或唯一前缀都可以；前缀不唯一时仍打开选择器。
 
 从 shell 启动时，`glue -c` 继续最近一次会话，`glue --resume <id>` 恢复指定 id。日常恢复用对话里的 `/resume`。
+
+窗口模式和全屏（Alt+Enter）都按当前可见行列排版。画面比终端少一行，长输出只保留末尾，输入条不缩小。Windows Terminal 用 VT 序列（Backspace 常是 `\x7f`）。旧版 cmd.exe 还可能送来 `\x08` 和 `\x00` / `\xE0` 扫描码，两种都识别。不进入备用屏幕。改界面前读 [docs/tui-hacking.md](docs/tui-hacking.md)。
 
 ## 权限
 
@@ -168,12 +171,15 @@ The first interactive session or `glue -p` run creates the user config if it is 
 
 Set `GLUE_BASE_URL` and `GLUE_MODEL` for a gateway. `GLUE_PROTOCOL=openai` posts to `…/chat/completions` (`https://host/v1` or a full chat completions URL). `GLUE_PROTOCOL=anthropic` posts to `…/v1/messages` (`https://api.anthropic.com`, a `/v1` root, or a full messages URL) with `x-api-key`, `anthropic-version: 2023-06-01`, and `Authorization: Bearer`. A URL on `*.anthropic.com` or ending in `/messages` selects Anthropic when the protocol is omitted; anything else stays OpenAI. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
 
+Windowed and fullscreen consoles both use the visible rows and columns. The frame is one row shorter than the terminal, long output is tailed, and the prompt does not shrink. Windows Terminal sends VT sequences (Backspace is often `\x7f`). Legacy cmd.exe may also send `\x08` and `\x00` / `\xE0` scan codes; both are accepted. The alternate screen stays off. Agents changing the interface should follow [docs/tui-hacking.md](docs/tui-hacking.md).
+
 Sessions live in `.agent/sessions/`. In the REPL, `/resume` opens a picker of other recent sessions (arrow keys, type to filter, Enter to resume, Esc to cancel). The current session and empty unnamed ones stay off that list. `/resume <session-id>` resumes that session immediately; a unique id, name, or prefix is enough, and an ambiguous prefix opens the picker. From the shell, `glue -c` continues the newest session and `glue --resume <id>` resumes one id.
 
 Profiles are `PROMPT.md` files. `cpld` is an empty stub so the core stays domain-agnostic. Contributors can run `npm run mock` and point `GLUE_BASE_URL` at `http://127.0.0.1:8787/v1`.
 
 ## Project
 
+- [TUI hacking](docs/tui-hacking.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)

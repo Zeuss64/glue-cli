@@ -2,8 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, render, Text, useApp, useInput, useStdout } from "ink";
-import type { Key } from "ink";
+import { Box, render, Text, useApp, useStdout } from "ink";
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
 import {
@@ -38,6 +37,9 @@ import { executeTool } from "../tools/execute.js";
 import { toolDefinitions } from "../tools/defs.js";
 import type { ChatMessage, FileSnap, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "./editor.js";
+import { useConsoleInput } from "./console-input.js";
+import { prevGrapheme } from "./text.js";
+import { frameSize, smallestCols, smallestRows, transcriptBudget, visibleTranscript } from "./viewport.js";
 import {
   ChoiceDialog,
   Header,
@@ -745,13 +747,23 @@ function App({ boot }: { boot: Boot }) {
     if (boot.openResume) void hostRef.current.resume();
     else if (boot.initialPrompt) void runTurnRef.current(boot.initialPrompt);
     setFiles(listProjectFiles(workspaceRef.current));
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const readWindow = () => {
+      const nextRows = smallestRows(stdout?.rows, process.stdout.rows);
+      const nextCols = smallestCols(stdout?.columns, process.stdout.columns);
+      if (nextRows) setRows(nextRows);
+      if (nextCols) setCols(nextCols);
+    };
     const onResize = () => {
-      setRows(stdout?.rows ?? 24);
-      setCols(stdout?.columns ?? 100);
+      readWindow();
+      timers.push(setTimeout(readWindow, 40));
     };
     stdout?.on("resize", onResize);
+    if (process.stdout !== stdout) process.stdout.on("resize", onResize);
     return () => {
+      for (const timer of timers) clearTimeout(timer);
       stdout?.off("resize", onResize);
+      if (process.stdout !== stdout) process.stdout.off("resize", onResize);
     };
     // Startup only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -761,19 +773,37 @@ function App({ boot }: { boot: Boot }) {
   const resumeView = picker?.kind === "resume" ? resumePickerView(picker.state) : null;
   const mention = mentionQuery(editor.text, editor.cursor);
   const fileHits = mention ? completePath(files, mention.query) : [];
-  const visible = useMemo(() => windowItems(items, scroll, rows), [items, scroll, rows]);
+  const termSize = frameSize([
+    { rows, columns: cols },
+    { rows: stdout?.rows, columns: stdout?.columns },
+    { rows: process.stdout.rows, columns: process.stdout.columns },
+  ]);
+  const termRows = termSize.rows;
+  const termCols = termSize.columns;
+  let extraLines = 0;
+  if (phase.type === "running") extraLines += 1;
+  if (help) extraLines += 16;
+  if (showTodos && todos.length) extraLines += 1 + todos.length;
+  if (slashMatches.length) extraLines += Math.min(6, slashMatches.length);
+  if (fileHits.length) extraLines += Math.min(6, fileHits.length);
+  if (picker) extraLines += 12;
+  if (phase.type === "permission" || phase.type === "ask" || phase.type === "plan") extraLines += 10;
+  const visible = useMemo(
+    () => visibleTranscript(items, scroll, termCols, transcriptBudget(termRows, extraLines), expanded),
+    [items, scroll, termCols, termRows, extraLines, expanded],
+  );
 
-  useInput((input, key) => {
-    for (const chunk of splitInput(input, key)) handleKey(chunk.input, chunk.key);
+  useConsoleInput((key) => {
+    handleKey(key);
   });
 
-  function handleKey(input: string, key: Key): void {
-    const k = toKey(input, key);
+  function handleKey(key: KeyIn): void {
+    const k = key;
     if (help) {
       if (k.escape || k.input === "?" || k.ctrl) setHelp(false);
       return;
     }
-    if (picker) {
+    if (pickerRef.current) {
       handlePicker(k);
       return;
     }
@@ -814,7 +844,7 @@ function App({ boot }: { boot: Boot }) {
       if (current.step === "feedback") {
         if (key.escape) current.resolve({ decision: "deny" });
         else if (key.return) current.resolve({ decision: "deny", feedback: current.feedback });
-        else if (key.backspace) setPhase({ ...current, feedback: current.feedback.slice(0, -1) });
+        else if (key.backspace) setPhase({ ...current, feedback: dropLast(current.feedback) });
         else if (key.input && !key.ctrl) setPhase({ ...current, feedback: current.feedback + key.input });
         return;
       }
@@ -840,7 +870,7 @@ function App({ boot }: { boot: Boot }) {
       if (current.other) {
         if (key.escape) current.resolve("The user dismissed the question.");
         else if (key.return) current.resolve(current.otherText || "Other");
-        else if (key.backspace) setPhase({ ...current, otherText: current.otherText.slice(0, -1) });
+        else if (key.backspace) setPhase({ ...current, otherText: dropLast(current.otherText) });
         else if (key.input && !key.ctrl) setPhase({ ...current, otherText: current.otherText + key.input });
         return;
       }
@@ -1129,9 +1159,11 @@ function App({ boot }: { boot: Boot }) {
     : "";
 
   return (
-    <Box flexDirection="column" height={rows} width={cols}>
-      <Header theme={theme} model={model} cwd={cwdLabel} branch={branch} />
-      <Box flexGrow={1} flexDirection="column" overflow="hidden" justifyContent="flex-end">
+    <Box flexDirection="column" height={termRows} width={termCols} overflow="hidden">
+      <Box flexShrink={0}>
+        <Header theme={theme} model={model} cwd={cwdLabel} branch={branch} />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minHeight={0} flexDirection="column" overflow="hidden" justifyContent="flex-end">
         {items.length === 0 ? <Welcome theme={theme} profile={profile} /> : null}
         {scroll > 0 ? <Text color={theme.muted}>… pgdn for latest</Text> : null}
         <TranscriptView items={visible} theme={theme} expanded={expanded} />
@@ -1201,6 +1233,7 @@ function App({ boot }: { boot: Boot }) {
         theme={theme}
         text={rev ? rev.query : editor.text}
         cursor={rev ? rev.query.length : editor.cursor}
+        anchor={rev ? null : editor.anchor}
         placeholder={placeholder}
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
@@ -1215,63 +1248,13 @@ interface TurnOpts {
   alreadyShown?: boolean;
 }
 
-function windowItems(items: TranscriptItem[], scroll: number, rows: number): TranscriptItem[] {
-  const end = Math.max(0, items.length - scroll);
-  const sliced = items.slice(0, end);
-  const budget = Math.max(6, rows - 12);
-  const kept: TranscriptItem[] = [];
-  let used = 0;
-  for (let i = sliced.length - 1; i >= 0; i--) {
-    const item = sliced[i];
-    if (!item) continue;
-    const cost = item.type === "tool" ? 3 + Math.min(6, item.diff?.length ?? 0) : Math.max(1, Math.ceil(textOf(item).length / 80));
-    if (kept.length && used + cost > budget) break;
-    kept.push(item);
-    used += cost;
-  }
-  return kept.reverse();
-}
-
-function textOf(item: TranscriptItem): string {
-  if (item.type === "tool") return item.summary ?? item.target;
-  return item.text;
+function dropLast(text: string): string {
+  return text.slice(0, prevGrapheme(text, text.length));
 }
 
 function visibleSlash<T>(rows: T[], index: number, size = 6): { rows: T[]; selected: number } {
   const start = Math.max(0, Math.min(Math.max(0, index - 1), Math.max(0, rows.length - size)));
   return { rows: rows.slice(start, start + size), selected: index - start };
-}
-
-function splitInput(input: string, key: Key): Array<{ input: string; key: Key }> {
-  if (key.return || (!input.includes("\r") && !input.includes("\n"))) return [{ input, key }];
-  const parts = input.split(/(\r\n|\n|\r)/);
-  const chunks: Array<{ input: string; key: Key }> = [];
-  for (const part of parts) {
-    if (!part) continue;
-    if (part === "\r" || part === "\n" || part === "\r\n") chunks.push({ input: "", key: { ...key, return: true } });
-    else chunks.push({ input: part, key: { ...key, return: false } });
-  }
-  return chunks.length ? chunks : [{ input, key }];
-}
-
-function toKey(input: string, key: Key): KeyIn {
-  return {
-    input,
-    ctrl: key.ctrl,
-    meta: key.meta,
-    shift: key.shift,
-    return: key.return,
-    escape: key.escape,
-    tab: key.tab,
-    backspace: key.backspace,
-    delete: key.delete,
-    up: key.upArrow,
-    down: key.downArrow,
-    left: key.leftArrow,
-    right: key.rightArrow,
-    pageUp: key.pageUp,
-    pageDown: key.pageDown,
-  };
 }
 
 function shorten(target: string): string {

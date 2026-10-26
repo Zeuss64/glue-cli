@@ -6,6 +6,7 @@ import { displayName } from "../render/format.js";
 import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
+import { promptSegments } from "./caret.js";
 import type { Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
@@ -148,33 +149,43 @@ export function PromptBox({
   theme,
   text,
   cursor,
+  anchor = null,
   placeholder,
   hint,
 }: {
   theme: Theme;
   text: string;
   cursor: number;
+  anchor?: number | null;
   placeholder?: string;
   hint?: string;
 }) {
-  const before = text.slice(0, cursor);
-  const ch = text[cursor] ?? " ";
-  const after = text.slice(cursor + 1);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    setTick(0);
+    const timer = setInterval(() => setTick((value) => value + 1), 530);
+    return () => clearInterval(timer);
+  }, [text, cursor, anchor]);
+  const parts = promptSegments(text, cursor, anchor, tick);
   const showPlaceholder = text.length === 0 && placeholder;
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} flexShrink={0}>
       {hint ? <Text color={theme.muted}>{hint}</Text> : null}
-      <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1}>
+      <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1} flexShrink={0}>
         <Text>
           <Text color={theme.accent}>{"> "}</Text>
-          {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
-          {showPlaceholder ? null : (
-            <Text color={theme.text}>
-              {before}
-              <Text inverse color={theme.text}>{ch}</Text>
-              {after}
-            </Text>
+          {parts.map((part, index) =>
+            part.inverse ? (
+              <Text key={index} inverse color={theme.text}>
+                {part.text}
+              </Text>
+            ) : (
+              <Text key={index} color={theme.text}>
+                {part.text}
+              </Text>
+            ),
           )}
+          {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
         </Text>
       </Box>
     </Box>
@@ -195,7 +206,7 @@ export function StatusBar({
   const tokens = usage.input + usage.output;
   const tokenLabel = tokens > 0 ? `  ${formatTokens(tokens)} tok` : "";
   return (
-    <Box marginTop={0}>
+    <Box marginTop={0} flexShrink={0}>
       <Text color={theme.muted}>{hint || "? for shortcuts"}{tokenLabel}</Text>
       <Box flexGrow={1} />
       <Text color={theme.mode[mode]}>{modeLabel(mode)}</Text>
@@ -208,6 +219,8 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["enter", "send"],
     ["\\ + enter", "newline"],
     ["shift+tab", "cycle permission mode"],
+    ["backspace", "delete the previous character"],
+    ["delete", "delete the next character"],
     ["esc", "interrupt, or deny a prompt"],
     ["ctrl+c", "clear input, then exit"],
     ["ctrl+d", "exit on an empty prompt"],
