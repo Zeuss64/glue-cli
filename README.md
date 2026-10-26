@@ -20,6 +20,70 @@ npx glue --help
 
 开发时可以不先构建：`npm run dev -- --help`。`npx glue doctor` 检查本机配置。
 
+## 全局命令
+
+装好之后，在任意项目目录输入 `glue` 就会在该目录启动。命令名是 `glue`，包名是 `glue-cli`。
+
+```bash
+npm run install:global
+glue --version
+```
+
+`install:global` 会先构建，再执行 `npm install -g .`，把 `glue` 放进 npm 的全局 bin。卸掉：`npm uninstall -g glue-cli`。
+
+改这份仓库、希望改完立刻生效时用链接（仍然要先构建，因为入口是 `dist/cli.js`）：
+
+```bash
+npm run build
+npm link
+```
+
+取消链接：`npm unlink -g glue-cli`。
+
+### Windows 的 Path
+
+Windows 上的 `glue.cmd` 在 `npm prefix -g` 打印的那个目录里，不是它下面的 `bin`。官方 Node 安装程序一般已经把这个目录放进用户 Path。新开一个终端再运行 `glue --version`。不要把文件复制到某个固定盘符，也不要放进 Program Files。
+
+如果提示找不到 `glue`：
+
+1. 运行 `npm prefix -g`，记下打印出的目录。
+2. 把它加到**用户** Path（不需要管理员）：设置 → 系统 → 关于 → 高级系统设置 → 环境变量 → 用户变量 Path → 新建。
+3. 关掉终端再开，运行 `glue --version`。
+
+PowerShell 可以替你追加用户 Path（目录来自 `npm prefix -g`）：
+
+```powershell
+$prefix = (npm prefix -g).Trim()
+$user = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($user -notlike "*$prefix*") {
+  [Environment]::SetEnvironmentVariable('Path', "$user;$prefix", 'User')
+}
+```
+
+如果 `npm install -g` 因权限失败，把全局前缀改到用户目录后再执行 `npm run install:global`：
+
+```bat
+npm config set prefix %USERPROFILE%\npm-global
+```
+
+然后把 `%USERPROFILE%\npm-global` 加入用户 Path。`%USERPROFILE%` 在哪块盘，命令就装在哪块盘。
+
+### 其他系统
+
+全局命令在 `$(npm prefix -g)/bin`。不在 PATH 里时：
+
+```bash
+export PATH="$(npm prefix -g)/bin:$PATH"
+```
+
+没有写系统目录的权限时，改到用户目录：
+
+```bash
+npm config set prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+npm run install:global
+```
+
 ## 环境变量
 
 优先级：命令行参数 > 环境变量 > 项目配置 > `~/.glue/config.toml` > 默认值。
@@ -163,6 +227,20 @@ npx glue
 npx glue doctor
 npm test && npm run typecheck
 ```
+
+`npm run install:global` builds and runs `npm install -g .`, so `glue` starts in whatever directory you are in. The package name is `glue-cli`; remove it with `npm uninstall -g glue-cli`. While developing this repo, `npm run build` then `npm link` (undo with `npm unlink -g glue-cli`).
+
+On Windows the shim is `glue.cmd` in the directory `npm prefix -g` prints (not a `bin` subfolder). Add that directory to the **user** Path if a new terminal cannot find `glue`. Do not copy the file onto a fixed drive or into Program Files. PowerShell:
+
+```powershell
+$prefix = (npm prefix -g).Trim()
+$user = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($user -notlike "*$prefix*") {
+  [Environment]::SetEnvironmentVariable('Path', "$user;$prefix", 'User')
+}
+```
+
+If the global install is denied, `npm config set prefix %USERPROFILE%\npm-global`, add `%USERPROFILE%\npm-global` to the user Path, and run `npm run install:global` again. Elsewhere, `export PATH="$(npm prefix -g)/bin:$PATH"`. If that prefix is not writable: `npm config set prefix "$HOME/.local"` and `export PATH="$HOME/.local/bin:$PATH"`.
 
 The first interactive session or `glue -p` run creates the user config if it is missing, then loads it. The path is `~/.glue/config.toml` (`%USERPROFILE%\.glue\config.toml` on Windows). An existing file is left unchanged. `model`, `base_url`, and `protocol` in that file apply to every later `glue` session, in any project, without exporting them again. Prefer `GLUE_API_KEY`, `AGENT_API_KEY`, or `OPENAI_API_KEY` for the key. You can also uncomment `api_key` in the user file for this machine only. Do not commit a key in project config. The generated file has a commented placeholder and does not copy a key out of the environment.
 
