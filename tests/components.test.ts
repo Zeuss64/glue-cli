@@ -90,11 +90,22 @@ test("model picker shows the highlight and the position counter", () => {
 });
 
 test("prompt draws the character under the caret", () => {
-  const view = render(createElement(PromptBox, { theme, text: "你好", cursor: 1, placeholder: "ask" }));
+  const view = render(createElement(PromptBox, { theme, text: "你好", cursor: 1, anchor: 0, placeholder: "ask" }));
   const frame = view.lastFrame() ?? "";
   assert.match(frame, /你/);
   assert.match(frame, /好/);
   view.unmount();
+
+  const empty = render(createElement(PromptBox, { theme, text: "", cursor: 0, placeholder: "ask" }));
+  assert.match(empty.lastFrame() ?? "", /ask/);
+  empty.unmount();
+
+  const current = modelChoices("gpt-4o-mini", "openai");
+  const first = render(createElement(ModelPicker, { theme, choices: current, selected: 0 }));
+  const firstFrame = first.lastFrame() ?? "";
+  assert.match(firstFrame, new RegExp(`1/${current.length}`));
+  assert.match(firstFrame, /gpt-4o-mini\s+current/);
+  first.unmount();
 });
 
 test("a fixed frame keeps the prompt when the transcript is long", () => {

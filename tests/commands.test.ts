@@ -109,8 +109,11 @@ test("/model, /permissions, and /vim update the session host", async () => {
   await runSlashCommand("/model", session);
   assert.equal(opened, true);
   assert.equal(session.lines.length, before);
+  opened = false;
   await runSlashCommand("/model deepseek-chat", session);
+  assert.equal(opened, false);
   assert.equal(session.model, "deepseek-chat");
+  assert.match(session.lines.at(-1) ?? "", /Model set to deepseek-chat/);
   await runSlashCommand("/permissions allow Bash(npm test *)", session);
   assert.ok(session.rules.allow.includes("Bash(npm test *)"));
   await runSlashCommand("/permissions mode plan", session);

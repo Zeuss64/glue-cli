@@ -94,10 +94,52 @@ test("the caret is visible on even ticks and covers one grapheme", () => {
   assert.equal(caretVisible(1), false);
   const shown = promptSegments("你a", 0, null, 0);
   assert.equal(shown.some((part) => part.inverse && part.text === "你"), true);
-  const hidden = promptSegments("ab", 2, null, 1);
-  assert.equal(hidden.some((part) => part.text === " " && part.inverse), false);
+  const hidden = promptSegments("你a", 0, null, 1);
+  assert.equal(hidden.some((part) => part.text === "你" && part.inverse), false);
+  assert.equal(hidden.some((part) => part.text === "你" && !part.inverse), true);
+  const end = promptSegments("ab", 2, null, 1);
+  assert.equal(end.some((part) => part.text === " " && part.inverse), false);
   const selected = promptSegments("abcd", 3, 1, 1);
   assert.equal(selected.find((part) => part.inverse)?.text, "bc");
   assert.equal(displayWidth("你"), 2);
   assert.equal(displayWidth("a"), 1);
+});
+
+test("backspace deletes at the end of the line and forward delete does not", () => {
+  const typed = apply(emptyEditor(), "hi");
+  assert.equal(typed.text, "hi");
+  assert.equal(typed.cursor, 2);
+  assert.equal(apply(typed, "\x1b[3~").text, "hi");
+  assert.equal(apply(typed, "\x7f").text, "h");
+  assert.equal(apply(typed, "\x08").text, "h");
+  const ctrlH = reduceEditor(typed, key({ ctrl: true, input: "h" }));
+  assert.equal(ctrlH.state.text, "h");
+  assert.equal(ctrlH.state.cursor, 1);
+});
+
+test("one backspace removes a supplementary-plane character and alt+backspace removes a word", () => {
+  const ideograph = "\u{20000}";
+  assert.equal(ideograph.length, 2);
+  const cleared = apply({ ...emptyEditor(), text: `a${ideograph}`, cursor: 1 + ideograph.length }, "\x7f");
+  assert.equal(cleared.text, "a");
+  const word = apply({ ...emptyEditor(), text: "one two", cursor: 7 }, "\x1b\x7f");
+  assert.equal(word.text, "one ");
+  assert.equal(word.cursor, 4);
+});
+
+test("ctrl+a then delete, and a shift-arrow selection, both delete through decoded bytes", () => {
+  let state = apply(emptyEditor(), "abcd");
+  state = apply(state, "\x01");
+  assert.equal(state.cursor, 0);
+  state = apply(state, "\x1b[3~");
+  assert.equal(state.text, "bcd");
+
+  state = apply({ ...emptyEditor(), text: "abcd", cursor: 4 }, "\x1b[1;2D\x1b[1;2D");
+  assert.equal(state.anchor, 4);
+  assert.equal(state.cursor, 2);
+  state = apply(state, "\x7f");
+  assert.equal(state.text, "ab");
+  state = reduceEditor({ ...emptyEditor(), text: "abcd", cursor: 4, anchor: 2 }, key({ delete: true })).state;
+  assert.equal(state.text, "ab");
+  assert.equal(state.anchor, null);
 });
