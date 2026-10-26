@@ -42,6 +42,7 @@ async function main(): Promise<void> {
       cwd,
       model: args.model,
       baseURL: args.baseURL,
+      protocol: args.protocol,
       permissionMode: args.permissionMode,
       profile: args.profile,
       configPath: args.configPath,

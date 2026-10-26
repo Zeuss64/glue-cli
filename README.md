@@ -6,7 +6,7 @@
 
 Glue Cli（命令 `glue`）是一个 MIT 许可的终端编码代理。它在当前项目里读文件、搜索、按你的确认改代码。交互接近公开文档里的 Claude Code：流式回复、`⏺` / `⎿` 工具行、斜杠命令、权限确认，以及 Shift+Tab 切换权限模式。
 
-实现是独立编写的，面向任何 OpenAI 兼容的 Chat Completions 接口。领域逻辑放在 profile 里。英文速览在[文末](#english)。
+实现是独立编写的，可接 OpenAI Chat Completions 或 Anthropic Messages API。领域逻辑放在 profile 里。英文速览在[文末](#english)。
 
 ## 安装
 
@@ -28,6 +28,7 @@ npx glue --help
 | --- | --- |
 | `GLUE_API_KEY`，其次 `AGENT_API_KEY`，其次 `OPENAI_API_KEY` | API 密钥 |
 | `GLUE_BASE_URL`，其次 `AGENT_BASE_URL`，其次 `OPENAI_BASE_URL` | 接口根地址，默认 `https://api.openai.com/v1` |
+| `GLUE_PROTOCOL`，其次 `AGENT_PROTOCOL` | `openai` 或 `anthropic`。省略时按 URL 推断 |
 | `GLUE_MODEL`，其次 `AGENT_MODEL`，其次 `OPENAI_MODEL` | 模型名，默认 `gpt-4o-mini` |
 | `GLUE_PERMISSION_MODE` | `default`、`acceptEdits`、`plan`、`dontAsk`、`bypassPermissions` |
 | `GLUE_PROFILE` | profile 名称，默认 `default` |
@@ -45,7 +46,14 @@ profile = "default"
 enabled = false
 ```
 
-`base_url` 可以是接口根路径（自动补 `/chat/completions`），也可以是完整的 chat completions 地址。密钥只放在环境变量里。
+`protocol` 也可以写在配置里，或用 `--protocol`。未指定时：主机名是 `api.anthropic.com`（或 `*.anthropic.com`），或路径以 `/messages` 结尾，用 Anthropic；路径含 `/chat/completions` 用 OpenAI；其余默认 OpenAI。密钥只放在环境变量里。
+
+| 协议 | `base_url` |
+| --- | --- |
+| OpenAI | `https://api.openai.com/v1`（补上 `/chat/completions`），或完整的 `…/chat/completions` |
+| Anthropic | `https://api.anthropic.com` 或 `…/v1`（补上 `/v1/messages` 或 `/messages`），或完整的 `…/v1/messages` |
+
+Anthropic 请求使用 Messages API：`x-api-key`、`anthropic-version: 2023-06-01`，以及 `Authorization: Bearer`。
 
 ## 交互会话
 
@@ -142,7 +150,7 @@ npm run typecheck
 
 ## English
 
-Glue Cli (`glue`) is an MIT-licensed terminal coding agent. It streams replies, prints tool calls as `⏺` / `⎿`, confirms mutations, and cycles permission modes with Shift+Tab. The client speaks any OpenAI-compatible Chat Completions API. The code is an original implementation.
+Glue Cli (`glue`) is an MIT-licensed terminal coding agent. It streams replies, prints tool calls as `⏺` / `⎿`, confirms mutations, and cycles permission modes with Shift+Tab. The client speaks OpenAI Chat Completions or the Anthropic Messages API. The code is an original implementation.
 
 ```bash
 npm install && npm run build
@@ -152,7 +160,7 @@ npx glue doctor
 npm test && npm run typecheck
 ```
 
-Set `GLUE_BASE_URL` and `GLUE_MODEL` for another compatible gateway. `base_url` may be the API root or a full chat completions URL. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
+Set `GLUE_BASE_URL` and `GLUE_MODEL` for a gateway. `GLUE_PROTOCOL=openai` posts to `…/chat/completions` (`https://host/v1` or a full chat completions URL). `GLUE_PROTOCOL=anthropic` posts to `…/v1/messages` (`https://api.anthropic.com`, a `/v1` root, or a full messages URL) with `x-api-key`, `anthropic-version: 2023-06-01`, and `Authorization: Bearer`. A URL on `*.anthropic.com` or ending in `/messages` selects Anthropic when the protocol is omitted; anything else stays OpenAI. Shell stays off until `GLUE_SHELL=1` or `shell.enabled = true`. File tools stay inside the workspace.
 
 Sessions live in `.agent/sessions/`. In the REPL, `/resume` opens a picker of other recent sessions (arrow keys, type to filter, Enter to resume, Esc to cancel). The current session and empty unnamed ones stay off that list. `/resume <session-id>` resumes that session immediately; a unique id, name, or prefix is enough, and an ambiguous prefix opens the picker. From the shell, `glue -c` continues the newest session and `glue --resume <id>` resumes one id.
 

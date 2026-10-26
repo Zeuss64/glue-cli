@@ -31,6 +31,8 @@ test("version, help, and unknown flags", () => {
   assert.equal(parseArgs(["-v"]).version, true);
   assert.equal(parseArgs(["--version"]).version, true);
   assert.equal(parseArgs(["run", "do the thing"]).print, true);
+  assert.equal(parseArgs(["--protocol", "anthropic"]).protocol, "anthropic");
+  assert.equal(parseArgs(["--api-protocol", "openai"]).protocol, "openai");
   assert.equal(parseArgs(["run", "do the thing"]).prompt, "do the thing");
   assert.match(cliHelp(), /Glue Cli/);
   assert.match(cliHelp(), /glue -p/);

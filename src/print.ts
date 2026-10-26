@@ -1,6 +1,6 @@
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "./agent/loop.js";
 import type { AppConfig } from "./config.js";
-import { createOpenAIClient } from "./llm/client.js";
+import { createLlmClient } from "./llm/client.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { displayName } from "./render/format.js";
 import { formatDiffPlain } from "./render/format.js";
@@ -37,7 +37,7 @@ export async function runPrint(opts: {
     messages.unshift({ role: "system", content: buildSystemPrompt(opts.config) });
   }
   messages.push({ role: "user", content: opts.prompt });
-  const client = createOpenAIClient(opts.config);
+  const client = createLlmClient(opts.config);
   const usage: TokenUsage = { input: 0, output: 0 };
   let atLineStart = true;
   const emit = (event: Record<string, unknown>) => {
