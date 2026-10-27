@@ -14,6 +14,43 @@ export function npmBinName(platform = process.platform) {
   return platform === "win32" ? "npm.cmd" : "npm";
 }
 
+export const GLOBAL_INSTALL_ARGS = ["install", "-g", ".", "--no-fund", "--no-audit"];
+
+// `npm run` points npm_execpath at npm-cli.js. A `.cmd`/`.bat` path is not a Node script.
+function npmJsEntry(env) {
+  const execPath = typeof env.npm_execpath === "string" ? env.npm_execpath.trim() : "";
+  if (!execPath || !/\.(?:js|mjs|cjs)$/i.test(execPath)) return "";
+  return execPath;
+}
+
+/**
+ * How to run npm without `spawnSync("npm.cmd")`.
+ * Node on Windows returns EINVAL for a `.cmd`/`.bat` spawn unless `shell` is set
+ * (the batch-file change from the April 2024 Node releases). `npm run` already
+ * exports the JS entry as `npm_execpath`; running that with node avoids cmd quoting
+ * and paths that contain spaces. Direct `node scripts/install-global.mjs` on
+ * Windows falls back to `npm.cmd` through the shell. Unix keeps spawning `npm`.
+ */
+export function npmLaunchSpec(npmArgs, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  const nodeBin = options.nodeBin || process.execPath;
+  const fileExists = options.fileExists ?? existsSync;
+  const entry = npmJsEntry(env);
+  if (entry && fileExists(entry)) {
+    return { command: nodeBin, args: [entry, ...npmArgs], shell: false };
+  }
+  if (platform === "win32") {
+    return { command: "npm.cmd", args: [...npmArgs], shell: true };
+  }
+  return { command: "npm", args: [...npmArgs], shell: false };
+}
+
+export function runNpm(npmArgs, options = {}, launch = {}, spawn = spawnSync) {
+  const spec = npmLaunchSpec(npmArgs, launch);
+  return spawn(spec.command, spec.args, { ...options, shell: spec.shell });
+}
+
 /** Directory that must be on PATH for the `glue` command. */
 export function globalBinDir(prefix, platform = process.platform) {
   const root = String(prefix ?? "").trim();
@@ -55,13 +92,15 @@ export function pathAdvice(binDir, platform = process.platform) {
   ].join("\n");
 }
 
-export function queryNpmPrefix(platform = process.platform) {
-  const result = spawnSync(npmBinName(platform), ["prefix", "-g"], { encoding: "utf8" });
+export function queryNpmPrefix(platform = process.platform, env = process.env, spawn = spawnSync) {
+  const result = runNpm(["prefix", "-g"], { encoding: "utf8" }, { platform, env }, spawn);
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || "npm prefix -g failed").trim());
+    const stderr = result.stderr == null ? "" : String(result.stderr);
+    const stdout = result.stdout == null ? "" : String(result.stdout);
+    throw new Error((stderr || stdout || "npm prefix -g failed").trim());
   }
-  return result.stdout.trim();
+  return String(result.stdout ?? "").trim();
 }
 
 function parseArgs(argv) {
@@ -124,7 +163,7 @@ function main() {
   if (!existsSync(built)) {
     throw new Error("dist/cli.js is missing. Run npm run build first.");
   }
-  const install = spawnSync(npmBinName(), ["install", "-g", ".", "--no-fund", "--no-audit"], {
+  const install = runNpm(GLOBAL_INSTALL_ARGS, {
     cwd: packageRoot(),
     stdio: "inherit",
   });
