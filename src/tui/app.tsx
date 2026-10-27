@@ -26,7 +26,15 @@ import { nextMode, type ApprovalMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
 import { writeUiSettings } from "../settings.js";
 import { discoverSkills, resolveSkill, toActiveSkill, type ActiveSkill } from "../skills.js";
-import { addTokenUsage, parseStatuslineSpec } from "../statusline.js";
+import {
+  addTokenUsage,
+  buildStatusLinePayload,
+  formatStatusLineOutput,
+  readStatusLineConfig,
+  runStatusLineCommand,
+  STATUSLINE_DEBOUNCE_MS,
+  type StatusLineConfig,
+} from "../statusline.js";
 import { decideResume, openResumePicker, reduceResumePicker, resumePickerView } from "../resume.js";
 import { snapsToRestore } from "../rewind.js";
 import { Sandbox } from "../sandbox.js";
@@ -52,9 +60,10 @@ import { frameRows, moveScroll, pageLines, reconcileSize, scrollHint, transcript
 import { cycleSlash, type SlashCycle } from "./complete.js";
 import { imeAnchor } from "./ime.js";
 import { isEffortPickerShortcut, MOUSE_TRACKING_ON } from "./keys.js";
-import { bindInkClear, placeCursorSequence, reflowTerminal, restoreTerminal } from "./screen.js";
+import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
   ChoiceDialog,
+  CustomStatusLine,
   EffortPicker,
   Header,
   HelpPanel,
@@ -163,7 +172,8 @@ function App({ boot }: { boot: Boot }) {
   const [mode, setModeState] = useState<PermissionMode>(boot.config.permissionMode);
   const [goal, setGoalState] = useState(boot.config.goal);
   const [approval, setApprovalState] = useState<ApprovalMode>(boot.config.approval);
-  const [statusSpec, setStatusSpec] = useState(boot.config.statusline);
+  const [statusLineConfig, setStatusLineConfig] = useState<StatusLineConfig | null>(boot.config.statusLine);
+  const [statusLineOutput, setStatusLineOutput] = useState("");
   const [model, setModelState] = useState(boot.config.model);
   const [effort, setEffortState] = useState<EffortLevel>(boot.config.effort);
   const [profile, setProfileState] = useState(boot.config.profile);
@@ -201,7 +211,13 @@ function App({ boot }: { boot: Boot }) {
   const modeRef = useRef(mode);
   const goalRef = useRef(goal);
   const approvalRef = useRef(approval);
-  const statusRef = useRef(statusSpec);
+  const statusLineConfigRef = useRef(statusLineConfig);
+  const glueHomeRef = useRef(homedir());
+  const statusAbortRef = useRef<AbortController | null>(null);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameSizeRef = useRef({ rows: 23, cols: 80 });
+  const imeLayoutRef = useRef({ frameRows: 23, frameCols: 80, text: "", cursor: 0, statusRows: 1 });
+  const prevStatusCommandRef = useRef<string | null>(null);
   const activeSkillRef = useRef<ActiveSkill | null>(null);
   const modelRef = useRef(model);
   const effortRef = useRef(effort);
@@ -267,7 +283,7 @@ function App({ boot }: { boot: Boot }) {
   modeRef.current = mode;
   goalRef.current = goal;
   approvalRef.current = approval;
-  statusRef.current = statusSpec;
+  statusLineConfigRef.current = statusLineConfig;
   modelRef.current = model;
   effortRef.current = effort;
   profileRef.current = profile;
@@ -366,11 +382,63 @@ function App({ boot }: { boot: Boot }) {
     writeUiSettings(workspaceRef.current, { approval: next });
   }
 
-  function rememberStatusline(next: string): void {
-    statusRef.current = next;
-    setStatusSpec(next);
-    logRef.current?.updateMeta({ statusline: next });
-    writeUiSettings(workspaceRef.current, { statusline: next });
+  function reloadStatusLine(immediate = true): void {
+    const next = readStatusLineConfig(glueHomeRef.current);
+    statusLineConfigRef.current = next;
+    setStatusLineConfig(next);
+    queueStatusLine(immediate);
+  }
+
+  function queueStatusLine(immediate = false): void {
+    const config = statusLineConfigRef.current;
+    if (!config?.command) {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      statusAbortRef.current?.abort();
+      setStatusLineOutput("");
+      return;
+    }
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    const wait = immediate ? 0 : STATUSLINE_DEBOUNCE_MS;
+    statusTimerRef.current = setTimeout(() => {
+      void refreshStatusLineNow();
+    }, wait);
+  }
+
+  async function refreshStatusLineNow(): Promise<void> {
+    const config = statusLineConfigRef.current;
+    if (!config?.command) {
+      setStatusLineOutput("");
+      return;
+    }
+    statusAbortRef.current?.abort();
+    const ac = new AbortController();
+    statusAbortRef.current = ac;
+    const payload = buildStatusLinePayload(
+      {
+        cwd: workspaceRef.current,
+        sessionId: logRef.current?.meta.id ?? "",
+        sessionName: sessionName,
+        model: modelRef.current,
+        effort: effortRef.current,
+        usage: usageRef.current,
+        contextWindow: boot.config.contextWindow,
+      },
+      {
+        goal: goalRef.current,
+        shell: shellRef.current,
+        session: sessionName,
+        branch,
+        cwd: cwdLabel,
+      },
+    );
+    const text = await runStatusLineCommand(config.command, payload, {
+      home: glueHomeRef.current,
+      cwd: workspaceRef.current,
+      columns: frameSizeRef.current.cols,
+      lines: frameSizeRef.current.rows,
+      signal: ac.signal,
+    });
+    if (!ac.signal.aborted) setStatusLineOutput(text);
   }
 
   function setSlash(index: number): void {
@@ -390,12 +458,12 @@ function App({ boot }: { boot: Boot }) {
   const hostRef = useRef<CommandHost>(null as unknown as CommandHost);
   hostRef.current = {
     workspace: workspaceRef.current,
-    config: { ...boot.config, model, effort, permissionMode: mode, profile, workspace: workspaceRef.current, shellEnabled, outputStyle, theme: themeName, goal, approval, statusline: statusSpec },
+    config: { ...boot.config, model, effort, permissionMode: mode, profile, workspace: workspaceRef.current, shellEnabled, outputStyle, theme: themeName, goal, approval, statusLine: statusLineConfig },
     model,
     effort,
     goal,
     approval,
-    statusline: statusSpec,
+    statusLine: statusLineConfig,
     permissionMode: mode,
     profile,
     themeName,
@@ -424,7 +492,7 @@ function App({ boot }: { boot: Boot }) {
     },
     setGoal: (next) => rememberGoal(next),
     setApproval: (next) => rememberApproval(next),
-    setStatusline: (next) => rememberStatusline(next),
+    onStatusLineChange: () => reloadStatusLine(true),
     home: homedir(),
     setActiveSkill: (skill) => {
       activeSkillRef.current = skill;
@@ -501,7 +569,6 @@ function App({ boot }: { boot: Boot }) {
         effort: effortRef.current,
         goal: goalRef.current,
         approval: approvalRef.current,
-        statusline: statusRef.current,
         skill: activeSkillRef.current?.id ?? "",
       });
       logRef.current = log;
@@ -530,6 +597,7 @@ function App({ boot }: { boot: Boot }) {
       itemsRef.current = nextItems;
       setItems(nextItems);
       logRef.current?.replace(messagesRef.current, nextItems, ctxRef.current.todos);
+      queueStatusLine(true);
     },
     btw: async (question) => {
       const answer = await sideText(`Side question, do not use tools and do not continue the task:\n${question}`, true);
@@ -572,7 +640,6 @@ function App({ boot }: { boot: Boot }) {
         effort: effortRef.current,
         goal: goalRef.current,
         approval: approvalRef.current,
-        statusline: statusRef.current,
         skill: activeSkillRef.current?.id ?? "",
         name: name || `${sessionName || "branch"}`,
       });
@@ -679,7 +746,6 @@ function App({ boot }: { boot: Boot }) {
     if (resumedEffort) rememberEffort(resumedEffort);
     if (typeof snap.meta.goal === "string") rememberGoal(snap.meta.goal);
     if (snap.meta.approval === "auto" || snap.meta.approval === "manual") rememberApproval(snap.meta.approval);
-    if (typeof snap.meta.statusline === "string") rememberStatusline(snap.meta.statusline);
     restoreSkill(snap.meta.skill);
     if (snap.meta.profile) {
       profileRef.current = snap.meta.profile;
@@ -948,7 +1014,6 @@ function App({ boot }: { boot: Boot }) {
         effort: boot.config.effort,
         goal: boot.config.goal,
         approval: boot.config.approval,
-        statusline: boot.config.statusline,
       });
       rebuildSystem();
     }
@@ -1001,8 +1066,14 @@ function App({ boot }: { boot: Boot }) {
   const fileHits = mention ? completePath(files, mention.query) : [];
   const termRows = frameRows(rows > 1 ? rows : undefined);
   const termCols = cols > 1 ? cols : 80;
+  frameSizeRef.current = { rows: termRows, cols: termCols };
   const helpCatalog = helpLines();
+  const customStatusLines = statusLineConfig?.command
+    ? formatStatusLineOutput(statusLineOutput, termCols, statusLineConfig.padding)
+    : [];
+  const statusRows = 1 + customStatusLines.length;
   let extraLines = 0;
+  if (customStatusLines.length) extraLines += customStatusLines.length;
   if (phase.type === "running") extraLines += 1;
   if (help) extraLines += 16;
   if (commandHelp) extraLines += 14;
@@ -1037,20 +1108,40 @@ function App({ boot }: { boot: Boot }) {
     handleKey(key);
   });
 
+  imeLayoutRef.current = {
+    frameRows: termRows,
+    frameCols: termCols,
+    text: rev ? rev.query : editor.text,
+    cursor: rev ? rev.query.length : editor.cursor,
+    statusRows,
+  };
+
   useEffect(() => {
-    const anchor = imeAnchor({
-      frameRows: termRows,
-      frameCols: termCols,
-      text: rev ? rev.query : editor.text,
-      cursor: rev ? rev.query.length : editor.cursor,
-    });
     const target = stdout ?? process.stdout;
-    try {
-      target.write(placeCursorSequence(anchor.row, anchor.column));
-    } catch {
-      /* stdout may be closed while the process is exiting */
-    }
-  }, [editor.text, editor.cursor, termRows, termCols, stdout, rev, commandHelp, help, scrollNote]);
+    if (typeof target?.write !== "function") return;
+    return attachImeCursorSync(target, () => imeAnchor(imeLayoutRef.current));
+  }, [stdout]);
+
+  useEffect(() => {
+    const command = statusLineConfig?.command ?? "";
+    const immediate = command !== prevStatusCommandRef.current;
+    prevStatusCommandRef.current = command;
+    queueStatusLine(immediate);
+  }, [usage, model, effort, mode, sessionName, statusLineConfig, phase.type, items.length]);
+
+  useEffect(() => {
+    const sec = statusLineConfig?.refreshInterval;
+    if (!sec) return;
+    const timer = setInterval(() => queueStatusLine(true), sec * 1000);
+    return () => clearInterval(timer);
+  }, [statusLineConfig?.refreshInterval, statusLineConfig?.command]);
+
+  useEffect(() => {
+    return () => {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      statusAbortRef.current?.abort();
+    };
+  }, []);
 
   function handleKey(key: KeyIn): void {
     const k = key;
@@ -1624,13 +1715,13 @@ function App({ boot }: { boot: Boot }) {
         placeholder={placeholder}
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
+      {customStatusLines.length ? <CustomStatusLine theme={theme} lines={customStatusLines} /> : null}
       <StatusBar
         theme={theme}
         mode={mode}
         approval={approval}
         usage={usage}
         effort={effort}
-        fields={parseStatuslineSpec(statusSpec)}
         model={model}
         goal={goal}
         cwd={cwdLabel}
@@ -1638,6 +1729,7 @@ function App({ boot }: { boot: Boot }) {
         shell={shellEnabled}
         session={sessionName}
         contextWindow={boot.config.contextWindow}
+        compact={customStatusLines.length > 0}
         hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"}
       />
     </Box>

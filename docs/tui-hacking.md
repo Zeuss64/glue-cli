@@ -16,6 +16,8 @@ After any code change, run `npm test` and `npm run typecheck` from the repositor
 | `src/tui/console-input.ts` | Subscribes to Ink's stdin `"input"` events and feeds `keys.ts`. |
 | `src/tui/text.ts` | Grapheme boundaries and display width (CJK and emoji count as two columns). |
 | `src/tui/caret.ts` | Blinking inverse-block caret and selection segments. |
+| `src/tui/ime.ts` | `imeAnchor` — the input caret cell for IME/preedit. |
+| `src/tui/screen.ts` | Resize/exit cleanup and `attachImeCursorSync` (CUP after every paint). |
 | `src/tui/viewport.ts` | Frame height, column width, and which transcript rows fit. |
 | `src/tui/theme.ts` | `dark`, `light`, and `ansi` color sets. |
 | `src/tui/model-picker.ts` | Model list order, `N/M` hint, and up/down/left/right reducer. |
@@ -64,9 +66,9 @@ The host scrollbar does not track the transcript. The frame is repainted in plac
 
 ## Chinese IME
 
-English input is committed bytes and stays in the prompt. A composing IME draws its preedit and candidate window at the real console cursor, which Ink leaves at the bottom-left after each paint. `imeAnchor` is the caret cell inside the input border; after each paint the app writes a cursor-position sequence and leaves the cursor hidden, so the drawn block and the hardware cursor do not both blink. The composition string itself is not delivered on stdin until the user commits it.
+English input is committed bytes and stays in the prompt. A composing IME draws its preedit and candidate window at the real console cursor. Ink's paint leaves that cursor past the last frame cell (the lower-left of the window), which is why pinyin used to appear under the footer. `imeAnchor` is the caret cell inside the input border, including extra rows from a custom status line. `attachImeCursorSync` patches `stdout.write` so **every** Ink paint (caret blink included) is followed by CUP onto that cell and `CSI ?25h`. The inverse-block caret stays on the same cell. Composition is not delivered on stdin until the user commits, so the hardware cursor must already sit on the input before IME starts.
 
-Residual limits: some conhost builds ignore a hidden cursor and keep the candidate window on the window edge. A caret blink can erase the overlay until the IME draws it again. Glue cannot place the candidate window anywhere except the console cursor.
+Residual limits: some legacy conhost builds ignore CUP or a shown cursor and still pin the candidate window to the window edge. Windows Terminal and other VT hosts pick up the synced position. Glue cannot place the IME overlay anywhere except the console cursor.
 
 ## Slash commands, `/goal`, `/auto`, `/statusline`
 
@@ -74,7 +76,7 @@ Residual limits: some conhost builds ignore a hidden cursor and keep the candida
 
 Tab completion is prefix-only (`filterCommands` / `cycleSlash`). One match accepts the name. Several matches cycle and the slash menu highlights the same row. Plain Tab is `\t`. Kitty `CSI 9 u` and modifyOtherKeys `CSI 27 ; modifier ; 9 ~` are Tab as well. Shift+Tab is still the permission cycle.
 
-`/goal` stores a sentence on the session and in `.agent/ui.json`. The system prompt includes it. `/goal clear` removes it. `/auto on` allows low-risk edits and local commands; `rm -rf`, paths outside the workspace, network installs, and privilege escalation still ask. The footer shows `manual mode on` or `auto mode on`. `/statusline` chooses the fields under the input. The default is shortcuts, effort, and tokens. `/statusline 设计` adds model and goal. A free-text request such as `/statusline 加模型、effort、用量、上下文占用百分比、窗口大小和缓存命中率` selects those fields and persists the spec. Context percent and window size render when the window is known. Cache hit renders only after the API reports cache tokens. The mode badge stays on the right.
+`/goal` stores a sentence on the session and in `.agent/ui.json`. The system prompt includes it. `/goal clear` removes it. `/auto on` allows low-risk edits and local commands; `rm -rf`, paths outside the workspace, network installs, and privilege escalation still ask. The footer shows `manual mode on` or `auto mode on`. `/statusline` writes a command script and `statusLine` settings under **`~/.glue/`** (never the project `.glue/` or `.agent/`). No args auto-configures model + context %. A description such as `/statusline show model name and context percentage with a progress bar` regenerates the script. `/statusline clear` / `delete` / `remove` drops the `statusLine` field. Glue runs the command with session JSON on stdin (model, effort, context_window, cwd, session_id, version, cache when known) and paints stdout above the built-in footer. `refreshInterval` (seconds, min 1) re-runs the command on a timer. The mode badge stays on the right.
 
 User lines in the transcript are bold and use `theme.user`. Assistant lines stay regular `theme.text`.
 
@@ -124,7 +126,7 @@ Caveats that are still real:
 - Legacy conhost does not reliably send bracketed paste or SGR mouse sequences. Do not require them.
 - Alt+Enter fullscreen can report the new size slightly late. The 40ms second read covers that; do not remove it.
 - If one size report stays large after the window was shrunk, the frame follows the smaller report on purpose.
-- The hardware cursor stays hidden. The blinking block is drawn by the prompt. Do not turn the terminal cursor back on or the two carets will disagree.
+- The hardware cursor is CUP'd onto the input caret and shown after every paint so IME/preedit attach there. The blinking inverse block stays on the same cell. Do not skip `attachImeCursorSync`; a hidden cursor left at the end of the frame is what put Chinese preedit in the lower-left.
 
 Extend `tests/input.test.ts` when you add a sequence. Assert both the decoded `KeyIn` and, when it edits text, the `EditorState`.
 

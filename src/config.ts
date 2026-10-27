@@ -6,6 +6,7 @@ import { normalizeEffort, type EffortLevel } from "./effort.js";
 import { resolveProtocol, type ApiProtocol } from "./llm/protocol.js";
 import { emptyRules, normalizeApproval, normalizeMode, type ApprovalMode } from "./permissions.js";
 import { readUiSettings } from "./settings.js";
+import { readStatusLineConfig, type StatusLineConfig } from "./statusline.js";
 import type { PermissionMode, PermissionRules } from "./types.js";
 
 export interface AppConfig {
@@ -35,8 +36,8 @@ export interface AppConfig {
   goal: string;
   /** Low-risk auto-approve. High-risk commands still ask. */
   approval: ApprovalMode;
-  /** Empty uses the default status fields (hint, effort, tokens). */
-  statusline: string;
+  /** Custom status line from `~/.glue/settings.json`. Null uses the built-in footer only. */
+  statusLine: StatusLineConfig | null;
   configPath?: string;
   workspace: string;
 }
@@ -141,7 +142,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
       "auto",
     goal: readGoal(env, merged, ui),
     approval: readApproval(env, merged, ui),
-    statusline: readStatusline(env, merged, ui),
+    statusLine: readStatusLineConfig(input.home ?? homedir()),
     configPath: file.path,
     workspace,
   };
@@ -181,7 +182,7 @@ base_url = "${DEFAULTS.baseURL}"
 # effort = "auto"
 # goal = ""
 # approval = "manual"
-# statusline = "hint,effort,tokens"
+# Status line scripts live in ~/.glue/settings.json (see /statusline).
 
 permission_mode = "${DEFAULTS.permissionMode}"
 profile = "${DEFAULTS.profile}"
@@ -353,12 +354,6 @@ function readApproval(env: NodeJS.ProcessEnv, merged: Record<string, unknown>, u
   if (fromEnv) return fromEnv;
   if (ui.seen.approval && ui.approval) return ui.approval;
   return normalizeApproval(str(merged, "approval", "auto_approve")) ?? "manual";
-}
-
-function readStatusline(env: NodeJS.ProcessEnv, merged: Record<string, unknown>, ui: ReturnType<typeof readUiSettings>): string {
-  if (env.GLUE_STATUSLINE !== undefined) return env.GLUE_STATUSLINE;
-  if (ui.seen.statusline && ui.statusline !== undefined) return ui.statusline;
-  return str(merged, "statusline") ?? "";
 }
 
 function isErrno(error: unknown, code: string): boolean {

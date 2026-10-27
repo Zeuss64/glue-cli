@@ -226,6 +226,7 @@ export function StatusBar({
   shell,
   session,
   contextWindow,
+  compact = false,
 }: {
   theme: Theme;
   mode: PermissionMode;
@@ -241,24 +242,48 @@ export function StatusBar({
   shell?: boolean;
   session?: string;
   contextWindow?: number;
+  /** Custom status line is showing; keep the built-in footer badges only. */
+  compact?: boolean;
 }) {
-  const left = formatStatusLeft(fields ?? DEFAULT_STATUS_FIELDS, {
-    hint,
-    effort,
-    usage,
-    model,
-    goal,
-    cwd,
-    branch,
-    shell,
-    session,
-    contextWindow,
-  });
+  const left = compact
+    ? ""
+    : formatStatusLeft(fields ?? DEFAULT_STATUS_FIELDS, {
+        hint,
+        effort,
+        usage,
+        model,
+        goal,
+        cwd,
+        branch,
+        shell,
+        session,
+        contextWindow,
+      });
   return (
     <Box marginTop={0} flexShrink={0}>
       <Text color={theme.muted}>{left}</Text>
       <Box flexGrow={1} />
       <Text color={theme.mode[mode]}>{footerModeLabel(mode, approval)}</Text>
+    </Box>
+  );
+}
+
+/** Custom `/statusline` command output, above the built-in footer. */
+export function CustomStatusLine({
+  theme,
+  lines,
+}: {
+  theme: Theme;
+  lines: string[];
+}) {
+  if (!lines.length) return null;
+  return (
+    <Box flexDirection="column" flexShrink={0}>
+      {lines.map((line, index) => (
+        <Text key={index} color={theme.muted} wrap="truncate-end">
+          {line || " "}
+        </Text>
+      ))}
     </Box>
   );
 }
