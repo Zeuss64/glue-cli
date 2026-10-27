@@ -103,6 +103,7 @@ export async function runPrint(opts: {
         setMode(mode) {
           opts.config.permissionMode = mode;
         },
+        getApproval: () => opts.config.approval,
         getRules: () => opts.config.permissions,
         addRule(kind, rule) {
           opts.config.permissions[kind].push(rule);

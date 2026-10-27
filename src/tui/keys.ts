@@ -217,6 +217,8 @@ function csiKey(body: string, final: string): KeyIn {
   const numbers = body.split(";").map((part) => part.replace(/[^\d]/g, "")).filter((part) => part.length > 0).map((part) => Number(part));
   const primary = numbers[0] ?? 0;
   applyModifier(key, numbers.length > 1 ? (numbers[1] ?? 1) : 1);
+  if (final === "u") return kittyKey(key, primary);
+  if (final === "~" && primary === 27) return modifyOtherKeys(key, numbers);
   if (final === "A" || final === "a") key.up = true;
   else if (final === "B" || final === "b") key.down = true;
   else if (final === "C" || final === "c") key.right = true;
@@ -271,6 +273,43 @@ function legacyKey(scan: string): KeyIn | undefined {
       break;
     default:
       return undefined;
+  }
+  return key;
+}
+
+/** Kitty keyboard protocol. Tab is code point 9 (`CSI 9 u`). */
+function kittyKey(key: KeyIn, code: number): KeyIn {
+  if (code === 9) {
+    key.tab = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 13) {
+    key.return = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 27) {
+    key.escape = true;
+    key.input = "";
+    return key;
+  }
+  if (code >= 32) key.input = String.fromCodePoint(code);
+  return key;
+}
+
+/** xterm modifyOtherKeys: `CSI 27 ; modifier ; key ~`. Tab is key 9. */
+function modifyOtherKeys(key: KeyIn, numbers: number[]): KeyIn {
+  const code = numbers[2] ?? 0;
+  if (code === 9) {
+    key.tab = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 13) {
+    key.return = true;
+    key.input = "";
+    return key;
   }
   return key;
 }

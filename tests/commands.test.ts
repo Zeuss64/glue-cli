@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { filterCommands, helpText, isImmediateCommand, runSlashCommand, type CommandHost } from "../src/commands.js";
+import { filterCommands, helpText, isImmediateCommand, presentCommandOutput, resolveSubmittedSlash, runSlashCommand, unavailableLine, type CommandHost } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
 
@@ -168,4 +168,78 @@ test("/resume with no id opens the picker path, and /resume <id> passes the id",
   await runSlashCommand("/resume   sess-123", session);
   await runSlashCommand("/continue older", session);
   assert.deepEqual(session.resumed, [undefined, "sess-123", "older"]);
+});
+
+test("unavailable samples are one line and do not append another help dump", async () => {
+  const session = host();
+  const samples = ["/login", "/mcp", "/ide", "/plugin", "/hooks", "/voice", "/desktop", "/logout", "/upgrade", "/chrome"];
+  for (const sample of samples) {
+    const before = session.lines.length;
+    await runSlashCommand(sample, session);
+    const line = session.lines.at(-1) ?? "";
+    assert.equal(session.lines.length, before + 1);
+    assert.equal(line.includes("\n"), false);
+    assert.equal(presentCommandOutput(line).helpPanel, false);
+    assert.doesNotMatch(line, /Glue Cli commands/);
+    assert.match(line, /不可用/);
+  }
+  assert.match(session.lines[0] ?? "", /GLUE_API_KEY/);
+  const dumped = presentCommandOutput(helpText());
+  assert.equal(dumped.helpPanel, true);
+  assert.equal(dumped.line, null);
+  assert.equal(presentCommandOutput(helpText()).line, null);
+  assert.equal(resolveSubmittedSlash("/login", 5), "/login");
+  assert.equal(resolveSubmittedSlash("/help", 3), "/help");
+  assert.equal(resolveSubmittedSlash("/he", 0), "/help");
+  assert.notEqual(resolveSubmittedSlash("/login /mcp /ide", 0), helpText());
+  const named = unavailableLine({ name: "voice", summary: "Voice input", available: false, note: "Voice input is not in this build." });
+  assert.equal(named.includes("\n"), false);
+});
+
+test("/goal, /auto, and /statusline update the host and stay in help", async () => {
+  const session = host();
+  session.setGoal = (goal) => {
+    session.goal = goal;
+  };
+  session.setApproval = (mode) => {
+    session.approval = mode;
+  };
+  session.setStatusline = (spec) => {
+    session.statusline = spec;
+  };
+  assert.match(helpText(), /\/goal\s+Show or set a persistent goal/);
+  assert.match(helpText(), /\/auto\s+/);
+  assert.match(helpText(), /\/statusline\s+/);
+  assert.equal(isImmediateCommand("/goal"), true);
+  assert.equal(isImmediateCommand("/auto"), true);
+  assert.equal(isImmediateCommand("/statusline"), true);
+  await runSlashCommand("/goal 把登录改成一次性验证码", session);
+  assert.equal(session.goal, "把登录改成一次性验证码");
+  assert.match(session.lines.at(-1) ?? "", /目标已设为/);
+  await runSlashCommand("/goal", session);
+  assert.match(session.lines.at(-1) ?? "", /一次性验证码/);
+  await runSlashCommand("/goal clear", session);
+  assert.equal(session.goal, "");
+  await runSlashCommand("/auto on", session);
+  assert.equal(session.approval, "auto");
+  assert.match(session.lines.at(-1) ?? "", /自动确认/);
+  await runSlashCommand("/auto off", session);
+  assert.equal(session.approval, "manual");
+  await runSlashCommand("/statusline 模型和用量", session);
+  assert.match(session.statusline ?? "", /model/);
+  assert.match(session.statusline ?? "", /tokens/);
+  await runSlashCommand("/statusline 设计", session);
+  assert.match(session.statusline ?? "", /goal/);
+  await runSlashCommand("/statusline reset", session);
+  assert.match(session.statusline ?? "", /hint/);
+  await runSlashCommand("/statusline model tokens", session);
+  const kept = session.statusline;
+  await runSlashCommand("/config statusline=status", session);
+  assert.equal(session.statusline, kept);
+  assert.match(session.lines.at(-1) ?? "", /model/);
+  const names = filterCommands("go").map((command) => command.name);
+  assert.deepEqual(names, ["goal"]);
+  const login = filterCommands("log").map((command) => command.name);
+  assert.ok(login.includes("login"));
+  assert.ok(login.includes("logout"));
 });

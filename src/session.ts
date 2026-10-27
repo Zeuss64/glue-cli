@@ -13,6 +13,9 @@ export interface SessionMeta {
   createdAt: string;
   updatedAt: string;
   effort?: string;
+  goal?: string;
+  approval?: string;
+  statusline?: string;
 }
 
 export interface SessionSnapshot {
@@ -38,6 +41,9 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     createdAt: now,
     updatedAt: now,
     ...(partial.effort ? { effort: partial.effort } : {}),
+    ...(partial.goal !== undefined ? { goal: partial.goal } : {}),
+    ...(partial.approval ? { approval: partial.approval } : {}),
+    ...(partial.statusline !== undefined ? { statusline: partial.statusline } : {}),
   };
   const file = path.join(sessionsDir(workspace), `${meta.id}.jsonl`);
   mkdirSync(path.dirname(file), { recursive: true });

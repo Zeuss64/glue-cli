@@ -196,6 +196,21 @@ test("Windows Terminal sequences and legacy conhost scan codes drive the same ed
   assert.equal(reduceEditor(emptyEditor(), key({ tab: true, shift: true })).effect, "cycle-mode");
 });
 
+test("tab is recognized from a raw byte, kitty, and modifyOtherKeys", () => {
+  const plain = pushConsoleChunk(emptyDecodeState(), "\t");
+  assert.equal(plain.keys[0]?.tab, true);
+  assert.equal(plain.keys[0]?.shift, false);
+  const kitty = pushConsoleChunk(emptyDecodeState(), "\x1b[9u");
+  assert.equal(kitty.keys[0]?.tab, true);
+  const shifted = pushConsoleChunk(emptyDecodeState(), "\x1b[9;2u");
+  assert.equal(shifted.keys[0]?.tab, true);
+  assert.equal(shifted.keys[0]?.shift, true);
+  const other = pushConsoleChunk(emptyDecodeState(), "\x1b[27;1;9~");
+  assert.equal(other.keys[0]?.tab, true);
+  assert.equal(reduceEditor(emptyEditor(), key({ tab: true })).effect, "complete");
+  assert.equal(reduceEditor({ ...emptyEditor(), text: "/he", cursor: 3 }, key({ tab: true })).effect, "complete");
+});
+
 test("the mouse wheel scrolls and does not insert text", () => {
   const up = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1;1M").keys[0];
   assert.equal(up?.wheel, 1);

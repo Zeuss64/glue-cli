@@ -3,6 +3,9 @@ import { globMatch } from "./glob.js";
 
 export type PermissionDecision = "allow" | "deny" | "ask";
 
+/** `manual` asks before mutations. `auto` allows low-risk work and still asks when the risk is high. */
+export type ApprovalMode = "manual" | "auto";
+
 export interface PermissionQuery {
   tool: string;
   mode: PermissionMode;
@@ -15,6 +18,8 @@ export interface PermissionQuery {
   shellEnabled?: boolean;
   /** Review turns and plan mode both refuse mutations. */
   readOnly?: boolean;
+  /** Omitted means manual, the historical default. */
+  approval?: ApprovalMode;
 }
 
 const TOOL_ALIASES: Record<string, string[]> = {
@@ -96,6 +101,91 @@ export function modeLabel(mode: PermissionMode): string {
   }
 }
 
+export function normalizeApproval(value: string | undefined | null): ApprovalMode | undefined {
+  if (!value?.trim()) return undefined;
+  const name = value.trim().toLowerCase();
+  if (["auto", "on", "1", "true", "yes", "自动"].includes(name)) return "auto";
+  if (["manual", "off", "0", "false", "no", "default", "手动"].includes(name)) return "manual";
+  return undefined;
+}
+
+/** Right-hand footer. Auto replaces the manual badge only while permission mode is still default. */
+export function footerModeLabel(mode: PermissionMode, approval: ApprovalMode = "manual"): string {
+  if (mode === "default" && approval === "auto") return "⏵⏵ auto mode on";
+  return modeLabel(mode);
+}
+
+/**
+ * High-risk work still asks in auto mode.
+ * Outside the workspace and protected paths are also high risk; callers that
+ * already deny those keep denying them.
+ */
+export function isHighRisk(query: {
+  tool: string;
+  command?: string;
+  outside?: boolean;
+  protectedPath?: boolean;
+}): boolean {
+  if (query.outside || query.protectedPath) return true;
+  if (query.tool === "run_shell") return commandIsHighRisk(query.command ?? "");
+  return false;
+}
+
+export function commandIsHighRisk(command: string): boolean {
+  const normalized = command.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes("../") || normalized.includes("..\\")) return true;
+  const parts = normalized
+    .split(/\s*(?:&&|\|\||[;&|])\s*|\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return (parts.length ? parts : [normalized]).some(segmentIsHighRisk);
+}
+
+const HIGH_RISK: RegExp[] = [
+  /(^|\s)rm\b/,
+  /(^|\s)rmdir\b/,
+  /(^|\s)del\b/,
+  /(^|\s)erase\b/,
+  /\bremove-item\b/,
+  /^format\b/,
+  /^diskpart\b/,
+  /^mkfs\b/,
+  /^dd\b/,
+  /\b(shutdown|reboot|poweroff)\b/,
+  /\b(sudo|doas|pkexec|runas|gsudo)\b/,
+  /\b(chmod|chown|icacls|takeown)\b/,
+  /\b(curl|wget|irm|iwr|invoke-webrequest|invoke-restmethod|certutil|bitsadmin)\b/,
+  /\b(ssh|scp|sftp|ftp|ncat|socat)\b/,
+  /(^|\s)nc\b/,
+  /\bnpx\b/,
+  /\bpnpm\s+dlx\b/,
+  /\bbunx\b/,
+  /\bnpm\s+(install|i|add|ci|update|uninstall|un)\b/,
+  /\bpnpm\s+(install|i|add|update|remove)\b/,
+  /\byarn\s+(install|add|remove|upgrade)\b/,
+  /\bbun\s+(install|add|remove|update)\b/,
+  /\bpip3?\s+install\b/,
+  /\bconda\s+install\b/,
+  /\bcargo\s+install\b/,
+  /\bgo\s+install\b/,
+  /\bgem\s+install\b/,
+  /\bapt(-get)?\s+install\b/,
+  /\b(brew|choco|scoop|winget)\s+install\b/,
+  /\b(pacman|yum|dnf)\b/,
+  /\bgit\s+push\b/,
+  /\bgit\s+reset\b/,
+  /\bgit\s+clean\b/,
+  /\b(kill|pkill|taskkill)\b/,
+  /\breg\s+delete\b/,
+  /\bcipher\b/,
+  /:\(\)\s*\{/,
+];
+
+function segmentIsHighRisk(segment: string): boolean {
+  return HIGH_RISK.some((pattern) => pattern.test(segment));
+}
+
 export function cycleModes(includeBypass: boolean): PermissionMode[] {
   const modes: PermissionMode[] = ["default", "acceptEdits", "plan"];
   if (includeBypass) modes.push("bypassPermissions");
@@ -122,6 +212,10 @@ export function decidePermission(query: PermissionQuery): PermissionDecision {
   if (query.tool === "run_shell" && isReadOnlyBash(query.command)) return "allow";
   if (query.mode === "acceptEdits" && query.tool === "run_shell" && isAcceptFs(query.command)) return "allow";
   if (!mutating) return "allow";
+  if (query.approval === "auto" && query.mode === "default") {
+    if (isHighRisk(query)) return "ask";
+    return "allow";
+  }
   if (query.mode === "acceptEdits" && (query.tool === "edit_file" || query.tool === "write_file")) return "allow";
   if (query.mode === "dontAsk" || query.mode === "plan") return "deny";
   return "ask";

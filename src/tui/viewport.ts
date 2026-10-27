@@ -45,6 +45,71 @@ export function frameRows(reported: number | undefined): number {
   return rows - 1;
 }
 
+export interface SizeMemory {
+  /** Last raw terminal rows we painted for. 0 means unset. */
+  rows: number;
+  columns: number;
+  inkRows?: number;
+  inkColumns?: number;
+  procRows?: number;
+  procColumns?: number;
+}
+
+/**
+ * Pick a terminal size from Ink's stdout and process.stdout.
+ * A source that just changed wins, so growing into fullscreen is not pinned by
+ * a stale smaller report, and shrinking is not pinned by a stale larger one.
+ * When both sources change in the same read, the smaller one wins so a paint
+ * cannot run past the window. Values of 0 or 1 are ignored.
+ */
+export function reconcileSize(
+  memory: SizeMemory,
+  ink: { rows?: number; columns?: number },
+  proc: { rows?: number; columns?: number },
+): { rows: number; columns: number; memory: SizeMemory; resized: boolean } {
+  const row = pickAxis(memory.rows, memory.inkRows, memory.procRows, ink.rows, proc.rows);
+  const col = pickAxis(memory.columns, memory.inkColumns, memory.procColumns, ink.columns, proc.columns);
+  const rows = row.value > 1 ? row.value : memory.rows;
+  const columns = col.value > 1 ? col.value : memory.columns > 1 ? memory.columns : 80;
+  const next: SizeMemory = {
+    rows: rows > 1 ? rows : memory.rows,
+    columns,
+    inkRows: row.ink,
+    inkColumns: col.ink,
+    procRows: row.proc,
+    procColumns: col.proc,
+  };
+  const resized = memory.rows > 1 && (row.changed || col.changed) && (next.rows !== memory.rows || next.columns !== memory.columns);
+  return { rows: next.rows, columns: next.columns, memory: next, resized };
+}
+
+function pickAxis(
+  current: number,
+  rememberedInk: number | undefined,
+  rememberedProc: number | undefined,
+  ink: number | undefined,
+  proc: number | undefined,
+): { value: number; ink?: number; proc?: number; changed: boolean } {
+  const inkU = usableDim(ink);
+  const procU = usableDim(proc);
+  const inkChanged = inkU !== undefined && inkU !== rememberedInk;
+  const procChanged = procU !== undefined && procU !== rememberedProc;
+  let value = current;
+  if (inkChanged && procChanged) value = Math.min(inkU as number, procU as number);
+  else if (inkChanged) value = inkU as number;
+  else if (procChanged) value = procU as number;
+  else if (!(current > 1)) {
+    if (inkU !== undefined && procU !== undefined) value = Math.min(inkU, procU);
+    else value = inkU ?? procU ?? current;
+  }
+  const changed = value > 1 && value !== current;
+  return { value, ink: inkU ?? rememberedInk, proc: procU ?? rememberedProc, changed };
+}
+
+function usableDim(value: number | undefined): number | undefined {
+  return typeof value === "number" && value > 1 ? value : undefined;
+}
+
 export function transcriptBudget(frame: number, extraLines: number): number {
   return Math.max(1, frame - 6 - Math.max(0, extraLines));
 }

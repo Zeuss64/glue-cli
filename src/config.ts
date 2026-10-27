@@ -4,7 +4,8 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { normalizeEffort, type EffortLevel } from "./effort.js";
 import { resolveProtocol, type ApiProtocol } from "./llm/protocol.js";
-import { emptyRules, normalizeMode } from "./permissions.js";
+import { emptyRules, normalizeApproval, normalizeMode, type ApprovalMode } from "./permissions.js";
+import { readUiSettings } from "./settings.js";
 import type { PermissionMode, PermissionRules } from "./types.js";
 
 export interface AppConfig {
@@ -30,6 +31,12 @@ export interface AppConfig {
   models: string[];
   /** `auto` omits provider effort fields. */
   effort: EffortLevel;
+  /** Persistent goal. Empty means the user has not set one. */
+  goal: string;
+  /** Low-risk auto-approve. High-risk commands still ask. */
+  approval: ApprovalMode;
+  /** Empty uses the default status fields (hint, effort, tokens). */
+  statusline: string;
   configPath?: string;
   workspace: string;
 }
@@ -107,6 +114,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
       firstDefined(shellBlock?.enabled, pick(merged, "shell_enabled", "shellEnabled")),
     false,
   );
+  const ui = readUiSettings(workspace);
 
   return {
     model,
@@ -131,6 +139,9 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
     effort:
       normalizeEffort(env.GLUE_EFFORT || env.AGENT_EFFORT || str(merged, "effort", "effort_level", "effortLevel")) ??
       "auto",
+    goal: readGoal(env, merged, ui),
+    approval: readApproval(env, merged, ui),
+    statusline: readStatusline(env, merged, ui),
     configPath: file.path,
     workspace,
   };
@@ -168,6 +179,9 @@ base_url = "${DEFAULTS.baseURL}"
 # Leave models unset and /model shows only model.
 # models = ["gpt-4o-mini", "gpt-4o"]
 # effort = "auto"
+# goal = ""
+# approval = "manual"
+# statusline = "hint,effort,tokens"
 
 permission_mode = "${DEFAULTS.permissionMode}"
 profile = "${DEFAULTS.profile}"
@@ -326,6 +340,25 @@ function themeOf(value: string | undefined): AppConfig["theme"] {
 
 function stripSlash(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function readGoal(env: NodeJS.ProcessEnv, merged: Record<string, unknown>, ui: ReturnType<typeof readUiSettings>): string {
+  if (env.GLUE_GOAL !== undefined) return env.GLUE_GOAL;
+  if (ui.seen.goal && ui.goal !== undefined) return ui.goal;
+  return str(merged, "goal") ?? "";
+}
+
+function readApproval(env: NodeJS.ProcessEnv, merged: Record<string, unknown>, ui: ReturnType<typeof readUiSettings>): ApprovalMode {
+  const fromEnv = normalizeApproval(env.GLUE_APPROVAL || env.GLUE_AUTO);
+  if (fromEnv) return fromEnv;
+  if (ui.seen.approval && ui.approval) return ui.approval;
+  return normalizeApproval(str(merged, "approval", "auto_approve")) ?? "manual";
+}
+
+function readStatusline(env: NodeJS.ProcessEnv, merged: Record<string, unknown>, ui: ReturnType<typeof readUiSettings>): string {
+  if (env.GLUE_STATUSLINE !== undefined) return env.GLUE_STATUSLINE;
+  if (ui.seen.statusline && ui.statusline !== undefined) return ui.statusline;
+  return str(merged, "statusline") ?? "";
 }
 
 function isErrno(error: unknown, code: string): boolean {

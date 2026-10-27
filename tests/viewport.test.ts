@@ -8,12 +8,14 @@ import {
   frameSize,
   moveScroll,
   pageLines,
+  reconcileSize,
   scrollHint,
   smallestRows,
   transcriptBudget,
   transcriptLineCount,
   transcriptWindow,
   visibleTranscript,
+  type SizeMemory,
 } from "../src/tui/viewport.js";
 
 test("fullscreen and a resized window share one frame and keep the tail of a long reply", () => {
@@ -169,4 +171,38 @@ test("wide lines and chrome shrink the transcript budget, and a tool row drops i
     assert.match(clipped[0].summary ?? "", /sum 29/);
     assert.ok(visualLines(clipped[0].summary ?? "", 40) <= 3);
   }
+});
+
+test("a changed stdout wins so fullscreen can grow and a shrink is not stuck large", () => {
+  const memory: SizeMemory = { rows: 30, columns: 80, inkRows: 30, inkColumns: 80, procRows: 30, procColumns: 80 };
+  const grown = reconcileSize(memory, { rows: 30, columns: 80 }, { rows: 55, columns: 140 });
+  assert.equal(grown.resized, true);
+  assert.equal(grown.rows, 55);
+  assert.equal(grown.columns, 140);
+  const stuck = reconcileSize(grown.memory, { rows: 30, columns: 80 }, { rows: 55, columns: 140 });
+  assert.equal(stuck.resized, false);
+  assert.equal(stuck.rows, 55);
+
+  const shrunk = reconcileSize(grown.memory, { rows: 55, columns: 140 }, { rows: 24, columns: 80 });
+  assert.equal(shrunk.resized, true);
+  assert.equal(shrunk.rows, 24);
+  assert.equal(shrunk.columns, 80);
+  const held = reconcileSize(shrunk.memory, { rows: 55, columns: 140 }, { rows: 24, columns: 80 });
+  assert.equal(held.resized, false);
+  assert.equal(held.rows, 24);
+});
+
+test("line scroll keeps earlier transcript lines and labels the in-app window", () => {
+  const text = Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n");
+  const item: TranscriptItem = { id: "a", type: "system", text };
+  const bottom = transcriptWindow([item], 0, 80, 5);
+  assert.match(bottom.items[0]?.type === "system" ? bottom.items[0].text : "", /line 19/);
+  assert.equal(bottom.total, 20);
+  assert.equal(bottom.below, 0);
+  const earlier = transcriptWindow([item], 10, 80, 5);
+  const shown = earlier.items[0]?.type === "system" ? earlier.items[0].text : "";
+  assert.match(shown, /line 5/);
+  assert.doesNotMatch(shown, /line 19/);
+  assert.equal(scrollHint(earlier.above, earlier.below), "… wheel or pgup for earlier · pgdn for latest");
+  assert.equal(scrollHint(0, 0), "");
 });

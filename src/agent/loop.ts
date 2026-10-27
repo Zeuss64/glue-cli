@@ -41,6 +41,7 @@ export interface AgentHooks {
   askPlan: (plan: string) => Promise<{ approved: boolean; feedback?: string }>;
   getMode: () => PermissionMode;
   setMode: (mode: PermissionMode) => void;
+  getApproval?: () => "manual" | "auto";
   getRules: () => PermissionRules;
   addRule: (kind: "allow" | "deny" | "ask", rule: string) => void;
 }
@@ -193,6 +194,7 @@ async function dispatchTool(call: ToolCall, ctx: ToolContext, hooks: AgentHooks,
     protectedPath: located.protectedPath,
     shellEnabled: ctx.shellEnabled,
     readOnly,
+    approval: hooks.getApproval?.() ?? "manual",
   });
 
   if (decision === "ask") {
