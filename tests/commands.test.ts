@@ -176,7 +176,7 @@ test("/effort ultracode toggles subagents and leaves the level alone", async () 
   await runSlashCommand("/effort ultracode", session);
   assert.equal(session.ultracode, true);
   assert.equal(session.effort, "high");
-  assert.match(session.lines.at(-1) ?? "", /Dynamic workflows/);
+  assert.match(session.lines.at(-1) ?? "", /Ultracode: dynamic workflows on every task/);
   assert.match(session.lines.at(-1) ?? "", /Effort stays high/);
   await runSlashCommand("/effort ultracode off", session);
   assert.equal(session.ultracode, false);

@@ -5,10 +5,13 @@ export type NamedEffort = (typeof EFFORT_LEVELS)[number];
 export type EffortLevel = NamedEffort | "auto";
 
 /**
- * UltraCode is not an API effort value. It pins the request to `max` and
- * allows the session to dispatch subagents.
+ * UltraCode is not an API effort value. The flag turns on dynamic workflows
+ * (`spawn_subagent` on every task). `GLUE_EFFORT=ultracode` still starts at `max`.
  */
 export const ULTRACODE = "ultracode" as const;
+
+/** Exact overlay and session copy. Do not rephrase. */
+export const ULTRACODE_DESCRIPTION = "Ultracode: dynamic workflows on every task";
 export type EffortChoice = EffortLevel | typeof ULTRACODE;
 
 /** Left/right order in the model picker. UltraCode stays on the `/effort` slider. */
@@ -17,7 +20,7 @@ export const EFFORT_CYCLE: readonly EffortLevel[] = ["auto", ...EFFORT_LEVELS];
 export interface EffortSelection {
   /** Value sent as Anthropic `output_config.effort`. `auto` omits it. */
   effort: EffortLevel;
-  /** When true, the session may spawn subagents and the API effort is `max`. */
+  /** When true, every task is a dynamic workflow dispatched with `spawn_subagent`. */
   ultracode: boolean;
 }
 
@@ -83,7 +86,7 @@ export function effortTitle(level: string | undefined): string {
 }
 
 export function effortSetMessage(selection: EffortSelection): string {
-  if (selection.ultracode) return "UltraCode on · max thinking + subagents.";
+  if (selection.ultracode) return `${ULTRACODE_DESCRIPTION}.`;
   if (selection.effort === "auto") return "Effort reset to auto (model default).";
   return `Effort set to ${selection.effort}.`;
 }
@@ -102,7 +105,7 @@ export function effortBlurb(choice: string | undefined): string {
     case "max":
       return "Top-tier thinking. No token cap.";
     case "ultracode":
-      return "Ultracode: dynamic workflows on every task.";
+      return ULTRACODE_DESCRIPTION;
     case "auto":
       return "Model default. Effort is omitted from the request.";
     default:

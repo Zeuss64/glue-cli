@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runSpawnedSubagent, toolsForSession } from "../src/agent/subagent.js";
+import { runSpawnedSubagent, spawnSubagentTool, toolsForSession } from "../src/agent/subagent.js";
 import type { AgentHooks } from "../src/agent/loop.js";
 import {
   applyEffortChoice,
@@ -15,7 +15,7 @@ import {
   parseEffortCommand,
 } from "../src/effort.js";
 import type { LlmClient } from "../src/llm/client.js";
-import { buildSystemPrompt } from "../src/prompt.js";
+import { buildSystemPrompt, ultracodeWorkflow } from "../src/prompt.js";
 import { Sandbox } from "../src/sandbox.js";
 import { executeTool, type ToolContext } from "../src/tools/execute.js";
 import { effortKnobAligned, EFFORT_PICKER_LEVELS } from "../src/tui/effort-picker.js";
@@ -48,8 +48,23 @@ test("ultracode maps onto max and does not replace the named levels", () => {
     outputStyle: "normal",
     ultracode: true,
   });
-  assert.match(prompt, /spawn_subagent/);
-  assert.match(prompt, /UltraCode is on/);
+  assert.equal(prompt.includes(ultracodeWorkflow()), true);
+  assert.match(prompt, /Ultracode: dynamic workflows on every task/);
+  assert.match(prompt, /On every task, run a multi-step workflow/);
+  assert.match(prompt, /prefer spawn_subagent/);
+  const off = buildSystemPrompt({
+    workspace: "/tmp/glue",
+    profile: "default",
+    permissionMode: "default",
+    shellEnabled: false,
+    outputStyle: "normal",
+    ultracode: false,
+  });
+  assert.equal(off.includes("Ultracode: dynamic workflows on every task"), false);
+  assert.equal(off.includes("spawn_subagent"), false);
+  const tool = spawnSubagentTool();
+  assert.match(tool.description, /Ultracode: dynamic workflows on every task/);
+  assert.match(tool.description, /independent step/);
 });
 
 test("max effort color shimmers and the knob stays on the highlighted stop", () => {

@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyEdit, EditError } from "../edit.js";
+import { ULTRACODE_DESCRIPTION } from "../effort.js";
 import { compactDiff, diffLines, diffStats } from "../diff.js";
 import { globMatch } from "../glob.js";
 import { Sandbox, SandboxError } from "../sandbox.js";
@@ -83,7 +84,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
 
 async function spawnSubagent(ctx: ToolContext, prompt: string, readOnly: boolean): Promise<ToolOutcome> {
   if (!ctx.spawnSubagent) {
-    return fail("spawn_subagent is available only while UltraCode is on (max thinking + subagents).");
+    return fail(`spawn_subagent is available only while UltraCode is on. ${ULTRACODE_DESCRIPTION}.`);
   }
   const output = await ctx.spawnSubagent(prompt, readOnly);
   const summary = output.replace(/\s+/g, " ").trim().slice(0, 80) || "subagent finished";

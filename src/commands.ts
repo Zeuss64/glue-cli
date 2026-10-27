@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
-import { EFFORT_CYCLE, effortSetMessage, effortStatusLabel, parseEffortCommand, type EffortLevel } from "./effort.js";
+import { EFFORT_CYCLE, effortSetMessage, effortStatusLabel, parseEffortCommand, ULTRACODE_DESCRIPTION, type EffortLevel } from "./effort.js";
 import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
@@ -470,7 +470,7 @@ function applyConfig(args: string, host: CommandHost): void {
       host.push(`UltraCode off. Effort stays ${host.effort ?? "auto"}.`);
     } else if (parsed.kind === "ultracode-on") {
       host.setUltracode?.(true);
-      host.push(`UltraCode on. Dynamic workflows and subagent dispatch. Effort stays ${host.effort ?? "auto"}.`);
+      host.push(`${ULTRACODE_DESCRIPTION}. Effort stays ${host.effort ?? "auto"}.`);
     } else if (parsed.kind === "set" && host.setEffort) {
       host.setEffort(parsed.effort);
     } else {
@@ -699,7 +699,7 @@ function applyEffort(args: string, host: CommandHost): void {
   }
   if (parsed.kind === "ultracode-on") {
     host.setUltracode?.(true);
-    host.push(`UltraCode on. Dynamic workflows and subagent dispatch. Effort stays ${host.effort ?? "auto"}.`);
+    host.push(`${ULTRACODE_DESCRIPTION}. Effort stays ${host.effort ?? "auto"}.`);
     return;
   }
   if (parsed.kind === "ultracode-off") {

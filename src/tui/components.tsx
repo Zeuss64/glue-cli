@@ -8,7 +8,7 @@ import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } f
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
-import { effortBlurb, effortColor, effortTitle } from "../effort.js";
+import { effortBlurb, effortColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
 import { effortTrackLines } from "./effort-picker.js";
 import { footerFields } from "./footer.js";
 import type { Theme } from "./theme.js";
@@ -589,7 +589,7 @@ export function EffortPicker({
           </Text>
           <Text color={tone}>{lines.track}</Text>
           <Text color={ultracode ? "#c084fc" : theme.text}>
-            {ultracode ? "Ultracode: dynamic workflows on every task" : effortBlurb(choice)}
+            {ultracode ? ULTRACODE_DESCRIPTION : effortBlurb(choice)}
           </Text>
         </Box>
         <Box flexDirection="column" marginLeft={2}>

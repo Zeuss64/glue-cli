@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { ULTRACODE_DESCRIPTION } from "./effort.js";
 import { packageRoot } from "./paths.js";
 import type { PermissionMode } from "./types.js";
 
@@ -12,11 +13,19 @@ export interface PromptParts {
   extraRoots?: string[];
   append?: string;
   goal?: string;
-  /** UltraCode: API effort is max, and spawn_subagent is available. */
+  /** When true, every task runs as a dynamic workflow via `spawn_subagent`. */
   ultracode?: boolean;
   /** Name and description only. The body loads when a skill is active. */
   skillCatalog?: Array<{ id: string; description: string }>;
   activeSkill?: { id: string; body: string };
+}
+
+/** Session instructions while UltraCode is on. The first line is the public description. */
+export function ultracodeWorkflow(): string {
+  return [
+    ULTRACODE_DESCRIPTION,
+    "On every task, run a multi-step workflow: decompose the work and prefer spawn_subagent for each independent step. Wait for the report, then continue. A subagent cannot dispatch another subagent. This toggle does not change the effort level.",
+  ].join("\n");
 }
 
 export function buildSystemPrompt(parts: PromptParts): string {
@@ -53,9 +62,7 @@ export function buildSystemPrompt(parts: PromptParts): string {
     parts.goal?.trim()
       ? `Current goal: ${parts.goal.trim()}\nKeep working toward this goal until it is done or the user changes it with /goal. Do not drop it for an unrelated task.`
       : "",
-    parts.ultracode
-      ? "UltraCode is on: dynamic workflows for substantive tasks. You may call spawn_subagent to dispatch a subagent for an independent subtask such as a search, a review, or a bounded change. A subagent cannot dispatch another subagent. Wait for its report, then continue. This toggle does not change the effort level."
-      : "",
+    parts.ultracode ? ultracodeWorkflow() : "",
     parts.outputStyle === "concise"
       ? "Output style: concise. Short paragraphs, no preamble, one sentence after a successful edit."
       : "",
