@@ -43,12 +43,29 @@ export function placeCursorSequence(row: number, column: number): string {
   return `\x1b[${r};${c}H`;
 }
 
-/** CUP onto the input caret and show the cursor so IME/preedit can attach. */
+/**
+ * CUP onto the input caret and hide the hardware cursor.
+ * IME/preedit follows the console cursor position. The glyph stays hidden so
+ * it does not blink at the caret or at the bottom of the screen; the inverse
+ * block in the input is the only visible caret.
+ */
 export function imeCursorSequence(row: number, column: number): string {
-  return `${placeCursorSequence(row, column)}\x1b[?25h`;
+  return `${placeCursorSequence(row, column)}\x1b[?25l`;
 }
 
-const IME_CURSOR_CHUNK = /^\x1b\[\d+;\d+H(?:\x1b\[\?25[hl])?$/;
+/** Hide, remember the post-paint cursor, then CUP to the caret and hide again. */
+export function imeParkSequence(row: number, column: number): string {
+  return `\x1b[?25l\x1b7${imeCursorSequence(row, column)}`;
+}
+
+/**
+ * Put the cursor back where the previous paint left it (end of the frame) and
+ * keep it hidden. log-update erases upward from the current cursor; leaving
+ * the cursor on the input caret makes that erase miss the orange border.
+ */
+export const IME_PARK_RESTORE = "\x1b8\x1b[?25l";
+
+const IME_CURSOR_CHUNK = /^(?:\x1b\[\?25l)?(?:\x1b7)?\x1b\[\d+;\d+H\x1b\[\?25l$/;
 
 export function isImeCursorChunk(chunk: unknown): boolean {
   const text = chunkToText(chunk);
@@ -57,9 +74,13 @@ export function isImeCursorChunk(chunk: unknown): boolean {
 
 /**
  * After Ink paints, the hardware cursor sits past the last frame cell (the
- * lower-left of the window). Patch stdout.write so each paint is followed by
- * one CUP+show onto the input caret. IME composition is not on stdin until
- * commit, so the cursor must already be there when the user starts composing.
+ * lower-left of the window). Showing it there is the ghost blink under the
+ * input. Patch stdout.write so each paint is followed by a save + CUP onto
+ * the input caret, with the hardware cursor kept hidden.
+ *
+ * The saved position is restored before the next write. log-update erases
+ * relative to the cursor; skipping the restore leaves the previous orange
+ * input border on screen (an empty bar under the prompt).
  */
 export function attachImeCursorSync(
   stdout: { write: (...args: any[]) => any },
@@ -69,14 +90,30 @@ export function attachImeCursorSync(
   const original = stdout.write.bind(stdout) as Write;
   let scheduled = false;
   let active = true;
+  let parked = false;
+
+  const restorePark = () => {
+    if (!parked) return;
+    parked = false;
+    try {
+      (original as (chunk: string) => unknown)(IME_PARK_RESTORE);
+    } catch {
+      /* stdout may be closed while the process is exiting */
+    }
+  };
 
   const flush = () => {
     scheduled = false;
     if (!active) return;
     const anchor = getAnchor();
-    if (!anchor) return;
     try {
-      (original as (chunk: string) => unknown)(imeCursorSequence(anchor.row, anchor.column));
+      if (!anchor) {
+        restorePark();
+        (original as (chunk: string) => unknown)("\x1b[?25l");
+        return;
+      }
+      (original as (chunk: string) => unknown)(imeParkSequence(anchor.row, anchor.column));
+      parked = true;
     } catch {
       /* stdout may be closed while the process is exiting */
     }
@@ -89,6 +126,7 @@ export function attachImeCursorSync(
   };
 
   stdout.write = ((...args: any[]) => {
+    if (active && parked && !isImeCursorChunk(args[0])) restorePark();
     const result = original(...args);
     if (!isImeCursorChunk(args[0])) schedule();
     return result;
@@ -98,6 +136,7 @@ export function attachImeCursorSync(
 
   return () => {
     active = false;
+    restorePark();
     stdout.write = original;
   };
 }

@@ -56,9 +56,9 @@ import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "./edito
 import { useConsoleInput } from "./console-input.js";
 import { openEffortPicker, reduceEffortPicker, type EffortPickerState } from "./effort-picker.js";
 import { prevGrapheme } from "./text.js";
-import { frameRows, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
+import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
 import { cycleSlash, type SlashCycle } from "./complete.js";
-import { imeAnchor } from "./ime.js";
+import { imeAnchor, statusAreaRows } from "./ime.js";
 import { isEffortPickerShortcut, MOUSE_TRACKING_ON } from "./keys.js";
 import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
@@ -1065,15 +1065,15 @@ function App({ boot }: { boot: Boot }) {
   const mention = mentionQuery(editor.text, editor.cursor);
   const fileHits = mention ? completePath(files, mention.query) : [];
   const termRows = frameRows(rows > 1 ? rows : undefined);
-  const termCols = cols > 1 ? cols : 80;
+  const termCols = layoutColumns(cols > 1 ? cols : undefined);
   frameSizeRef.current = { rows: termRows, cols: termCols };
   const helpCatalog = helpLines();
   const customStatusLines = statusLineConfig?.command
     ? formatStatusLineOutput(statusLineOutput, termCols, statusLineConfig.padding)
     : [];
-  const statusRows = 1 + customStatusLines.length;
+  const statusRows = statusAreaRows(customStatusLines);
   let extraLines = 0;
-  if (customStatusLines.length) extraLines += customStatusLines.length;
+  if (statusRows > 1) extraLines += statusRows - 1;
   if (phase.type === "running") extraLines += 1;
   if (help) extraLines += 16;
   if (commandHelp) extraLines += 14;
@@ -1715,7 +1715,7 @@ function App({ boot }: { boot: Boot }) {
         placeholder={placeholder}
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
-      {customStatusLines.length ? <CustomStatusLine theme={theme} lines={customStatusLines} /> : null}
+      {statusRows > 1 ? <CustomStatusLine theme={theme} lines={customStatusLines} /> : null}
       <StatusBar
         theme={theme}
         mode={mode}

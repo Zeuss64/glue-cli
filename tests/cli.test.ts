@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { VERSION } from "../src/version.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const cli = path.join(root, "src", "cli.ts");
@@ -136,7 +137,7 @@ test("glue --version and --help", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cli-"));
   const version = await run(["--version"], {}, cwd);
   assert.equal(version.code, 0);
-  assert.match(version.stdout, /^glue 0\.1\.103/);
+  assert.match(version.stdout, new RegExp(`^glue ${VERSION.replaceAll(".", "\\.")}`));
   const help = await run(["--help"], {}, cwd);
   assert.match(help.stdout, /Glue Cli/);
 });

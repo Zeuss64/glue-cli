@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
+import { Box } from "ink";
 import { render } from "ink-testing-library";
 import test from "node:test";
+import { stripAnsi } from "../src/statusline.js";
 import { slashRowLines, slashRowTone } from "../src/tui/complete.js";
-import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, PromptBox, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { displayWidth } from "../src/tui/text.js";
 import { THEMES } from "../src/tui/theme.js";
+import { layoutColumns } from "../src/tui/viewport.js";
 
 const theme = THEMES.ansi;
 
@@ -33,6 +37,25 @@ test("status bar and permission dialog use the Glue labels", () => {
   assert.match(custom.lastFrame() ?? "", /gpt-4o-mini/);
   assert.match(custom.lastFrame() ?? "", /8%/);
   custom.unmount();
+
+  const blank = render(createElement(CustomStatusLine, { theme, lines: ["", "   ", "\t"] }));
+  assert.equal(stripAnsi(blank.lastFrame() ?? "").trim(), "");
+  blank.unmount();
+
+  const columns = 40;
+  const width = layoutColumns(columns);
+  const prompt = render(
+    createElement(Box, { width, flexDirection: "column" }, createElement(PromptBox, { theme, text: "hi", cursor: 2 })),
+  );
+  const borderLines = stripAnsi(prompt.lastFrame() ?? "")
+    .split("\n")
+    .filter((line) => displayWidth(line) > 0);
+  assert.ok(borderLines.some((line) => line.includes("╰")));
+  for (const line of borderLines) {
+    assert.ok(displayWidth(line) <= width);
+    assert.ok(displayWidth(line) < columns);
+  }
+  prompt.unmount();
 
   const dialog = render(
     createElement(PermissionDialog, {

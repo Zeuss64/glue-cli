@@ -18,8 +18,9 @@ import {
   readStatusLineConfig,
   runStatusLineCommand,
 } from "../src/statusline.js";
-import { attachImeCursorSync, imeCursorSequence, isImeCursorChunk, placeCursorSequence } from "../src/tui/screen.js";
-import { imeAnchor } from "../src/tui/ime.js";
+import { attachImeCursorSync, IME_PARK_RESTORE, imeCursorSequence, imeParkSequence, isImeCursorChunk, placeCursorSequence } from "../src/tui/screen.js";
+import { imeAnchor, statusAreaRows } from "../src/tui/ime.js";
+import { layoutColumns } from "../src/tui/viewport.js";
 
 function fakeHome(): string {
   return mkdtempSync(path.join(tmpdir(), "glue-home-"));
@@ -150,7 +151,7 @@ test("loadConfig reads statusLine from ~/.glue/settings.json and ignores project
   assert.equal(existsSync(path.join(project, ".glue", "statusline.sh")), false);
 });
 
-test("IME cursor is rewritten after every stdout paint, not only editor changes", async () => {
+test("IME cursor is parked after every paint and restored before the next one", async () => {
   const writes: string[] = [];
   const stdout = {
     write(chunk: string) {
@@ -160,23 +161,59 @@ test("IME cursor is rewritten after every stdout paint, not only editor changes"
   };
   const detach = attachImeCursorSync(stdout, () => ({ row: 12, column: 5 }));
   await Promise.resolve();
-  assert.match(writes.join(""), /\x1b\[12;5H/);
-  assert.match(writes.join(""), /\x1b\[\?25h/);
+  const parked = writes.join("");
+  assert.equal(parked, imeParkSequence(12, 5));
+  assert.match(parked, /\x1b\[12;5H/);
+  assert.match(parked, /\x1b\[\?25l/);
+  assert.doesNotMatch(parked, /\x1b\[\?25h/);
   writes.length = 0;
   stdout.write("ink-frame\n");
   await Promise.resolve();
-  assert.match(writes.join(""), /ink-frame/);
-  assert.match(writes.join(""), /\x1b\[12;5H\x1b\[\?25h/);
+  const repaint = writes.join("");
+  assert.ok(repaint.startsWith(IME_PARK_RESTORE + "ink-frame\n"), repaint);
+  assert.match(repaint, /\x1b7\x1b\[12;5H\x1b\[\?25l/);
+  assert.doesNotMatch(repaint, /\x1b\[\?25h/);
   assert.equal(isImeCursorChunk(imeCursorSequence(12, 5)), true);
+  assert.equal(isImeCursorChunk(imeParkSequence(12, 5)), true);
   assert.equal(isImeCursorChunk("ink-frame\n"), false);
+  assert.equal(isImeCursorChunk(IME_PARK_RESTORE), false);
+  detach();
+  assert.ok(writes.at(-1)?.startsWith("\x1b8"), "detach restores the cursor for the next erase");
+});
+
+test("a null IME anchor hides the hardware cursor instead of leaving it at the bottom", async () => {
+  const writes: string[] = [];
+  const stdout = {
+    write(chunk: string) {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    },
+  };
+  const detach = attachImeCursorSync(stdout, () => null);
+  await Promise.resolve();
+  assert.equal(writes.join(""), "\x1b[?25l");
+  assert.doesNotMatch(writes.join(""), /\x1b\[\?25h/);
   detach();
 });
 
-test("IME anchor sits on the caret and moves up when the status area is taller", () => {
+test("IME anchor sits on the caret and moves up only for visible status rows", () => {
   const empty = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0 });
   assert.deepEqual(empty, { row: 27, column: 5 });
-  const custom = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0, statusRows: 3 });
-  assert.equal(custom.row, 25);
+  const custom = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0, statusRows: statusAreaRows(["model 20%", " "]) });
+  assert.equal(statusAreaRows(["model 20%", " ", "\t"]), 2);
+  assert.equal(statusAreaRows(["", "   "]), 1);
+  assert.equal(custom.row, 26);
   assert.equal(custom.column, 5);
   assert.equal(placeCursorSequence(27, 5), "\x1b[27;5H");
+  assert.equal(layoutColumns(100), 99);
+  assert.equal(layoutColumns(undefined), 79);
+});
+
+test("blank or color-only statusline stdout does not reserve a row", () => {
+  const blanks = ["", " ", "\n\n", "\t", "   \n  ", "\x1b[38;5;173m\x1b[0m", "\x1b[48;5;173m \x1b[0m", "\x1b[38;2;217;119;87m\x1b[0m"];
+  for (const raw of blanks) assert.deepEqual(formatStatusLineOutput(raw, 80), [], JSON.stringify(raw));
+  const shown = formatStatusLineOutput("\x1b[38;5;173mmodel 8%\x1b[0m\n\n", 80);
+  assert.deepEqual(shown, ["model 8%"]);
+  assert.equal(statusAreaRows(shown), 2);
+  assert.equal(statusAreaRows(formatStatusLineOutput("", 80)), 1);
 });

@@ -526,10 +526,11 @@ export function formatStatusLineOutput(raw: string, columns: number, padding = 0
   for (const line of raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")) {
     if (lines.length >= STATUSLINE_MAX_LINES) break;
     const plain = stripAnsi(line).replace(/\t/g, " ");
-    if (!plain && lines.length === 0) continue;
+    // Whitespace and color-only lines are not a status row. An empty command
+    // (or a script that only emits SGR) must not reserve a strip under the input.
+    if (!plain.trim()) continue;
     lines.push(prefix + clipWidth(plain, inner));
   }
-  while (lines.length && !lines[lines.length - 1]?.trim()) lines.pop();
   return lines.slice(0, STATUSLINE_MAX_LINES);
 }
 

@@ -45,6 +45,16 @@ export function frameRows(reported: number | undefined): number {
   return rows - 1;
 }
 
+/**
+ * One column short of the terminal. A border that fills every column wraps
+ * on the last cell and leaves an extra orange row under the input; log-update
+ * does not count that wrapped row, so the next paint cannot erase it.
+ */
+export function layoutColumns(reported: number | undefined): number {
+  const cols = reported && reported > 1 ? reported : 80;
+  return Math.max(1, cols - 1);
+}
+
 export interface SizeMemory {
   /** Last raw terminal rows we painted for. 0 means unset. */
   rows: number;
