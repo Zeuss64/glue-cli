@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { loadConfig } from "../src/config.js";
 import { readUiSettings, writeUiSettings } from "../src/settings.js";
-import { parseStatuslineRequest, parseStatuslineSpec } from "../src/statusline.js";
+import { cacheHitPercent, formatStatusLeft, parseStatuslineRequest, parseStatuslineSpec } from "../src/statusline.js";
 import { cycleSlash } from "../src/tui/complete.js";
 import { imeAnchor } from "../src/tui/ime.js";
 import { RESIZE_REFLOW_SEQUENCE, RESTORE_TERMINAL_SEQUENCE, placeCursorSequence } from "../src/tui/screen.js";
@@ -60,6 +60,35 @@ test("statusline requests understand Chinese and English field names", () => {
   assert.equal(parseStatuslineRequest("nope").kind, "invalid");
   assert.deepEqual(parseStatuslineSpec(""), ["hint", "effort", "tokens"]);
   assert.ok(parseStatuslineSpec("设计").includes("goal"));
+  const designed = parseStatuslineRequest("加当前使用模型，当前effort，token使用量，上下文窗口占用百分比，上下文窗口有多少，缓存命中率");
+  assert.equal(designed.kind, "set");
+  if (designed.kind === "set") {
+    assert.deepEqual(designed.fields, ["model", "effort", "tokens", "context", "contextSize", "cache"]);
+  }
+  assert.deepEqual(parseStatuslineRequest("context window size"), { kind: "set", fields: ["contextSize"] });
+  assert.deepEqual(parseStatuslineSpec("model,effort,tokens,context,contextSize,cache"), ["model", "effort", "tokens", "context", "contextSize", "cache"]);
+  const shown = formatStatusLeft(["model", "effort", "tokens", "context", "contextSize", "cache"], {
+    model: "sensenova-6.8-flash-lite",
+    effort: "max",
+    usage: { input: 1000, output: 0, cacheRead: 250 },
+    contextWindow: 128000,
+  });
+  assert.match(shown, /sensenova-6\.8-flash-lite/);
+  assert.match(shown, /effort max/);
+  assert.match(shown, /1\.0k tok/);
+  assert.match(shown, /ctx 1%/);
+  assert.match(shown, /window 128\.0k/);
+  assert.match(shown, /cache 25%/);
+  const hidden = formatStatusLeft(["tokens", "cache", "context", "contextSize"], {
+    usage: { input: 0, output: 0 },
+    contextWindow: 128000,
+  });
+  assert.doesNotMatch(hidden, /tok/);
+  assert.doesNotMatch(hidden, /cache/);
+  assert.match(hidden, /ctx 0%/);
+  assert.match(hidden, /window 128\.0k/);
+  assert.equal(cacheHitPercent({ input: 100, output: 0, cacheRead: 300 }), 75);
+  assert.equal(cacheHitPercent({ input: 10, output: 1 }), undefined);
 });
 
 test("ui.json goal, approval, and statusline override project config and survive a rewrite", () => {

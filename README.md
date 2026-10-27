@@ -45,12 +45,14 @@ base_url = "https://api.openai.com/v1"
 ## 命令
 
 - `/model` 打开列表。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。↑↓ 移动，回车选定，Esc 取消。←→ 改 effort。`/model <id>` 直接切换，不打开列表。
-- `/effort` 回车打开左右选择：low、medium、high、xhigh、max、auto。回车确认，Esc 取消。`/effort <level>` 直接设置，`/effort status` 打印当前档位。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
+- `/effort` 回车打开左右选择：low、medium、high、xhigh、max、auto。Alt+P 打开同一个选择，不清掉正在输入的草稿。回车确认，Esc 取消。`/effort <level>` 直接设置，`/effort status` 打印当前档位。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
 - 鼠标滚轮或 PgUp 看更早的对话，PgDn 回到最新。停在最新一行时，新输出仍跟着底部。提示是 `wheel or pgup for earlier`，Windows 右侧滚动条不会跟着走。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
 - `/goal <一句话>` 记下当前目标，写入会话和 `.agent/ui.json`。`/goal clear` 清除。
 - `/auto on` 自动放行低风险的读、改和本地命令。`rm -rf`、越出工作区、联网安装、提权仍会询问。页脚在 `manual mode on` 和 `auto mode on` 之间切换。`/auto off` 回到手动。
-- `/statusline` 选择输入框下的字段（tokens、effort、model、目标等）。`/statusline 设计` 用更完整的一行，`/statusline reset` 恢复默认。
+- `/statusline` 选择输入框下的字段（tokens、effort、model、目标等）。也可以用一句话设计，例如 `/statusline 加模型、effort、token用量、上下文占用百分比、窗口大小和缓存命中率`。`/statusline 设计` 用更完整的一行，`/statusline reset` 恢复默认。缓存命中率只在接口返回缓存数据后显示。
+- `/skill` 列出技能，`/skill <name>` 加载并执行。技能文件是 `.glue/skills/<name>/SKILL.md`、`.agent/skills/<name>/SKILL.md` 或 `~/.glue/skills/<name>/SKILL.md`。
+- `/plugin load <目录>` 把本地技能库接到当前项目。`/plugin install <owner/repo>` 从 GitHub 安装到 `~/.glue/plugins`。只读取 `SKILL.md`，不执行插件里的其它程序。
 - `/help` 打开一页命令，不再把整表重复追加到对话里。`/login`、`/mcp` 这类不可用命令只提示一行。
 - Tab 按前缀补全 `/` 命令；多个匹配时循环，并高亮菜单。Shift+Tab 仍切换权限。
 - 退出时清掉最后一帧，避免橙色输入框留在 cmd 提示符上。窗口变大或变小时按新的行列重画整帧。
@@ -70,6 +72,6 @@ Coding agent for CPLD. `glue` is an MIT-licensed terminal agent. It speaks OpenA
 
 `/model` lists `models` from config, with the current model first and each id once. If `models` is empty, the list is only `model`, not unrelated built-in ids. One `base_url` and key can serve several models: set `models = ["id-a", "id-b"]`. `/model <id>` sets an id directly. Left and right in the model picker change effort.
 
-`/effort` opens a left/right picker for low, medium, high, xhigh, max, and auto. Enter sets the highlighted level. Esc cancels. `/effort <level>` still sets a level directly, and `/effort status` prints the current one.
+`/effort` opens a left/right picker for low, medium, high, xhigh, max, and auto. Alt+P opens the same picker. Enter sets the highlighted level. Esc cancels. `/effort <level>` still sets a level directly, and `/effort status` prints the current one.
 
-`/goal` keeps a persistent goal. `/auto on` auto-approves low-risk tools and still asks for high-risk shell (recursive delete, network install, privilege escalation). `/statusline` picks the footer fields. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. The mouse wheel and PgUp scroll inside the transcript; the host scrollbar does not. PgDn returns to the latest line. Resize repaints the frame from the new stdout size, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).
+`/goal` keeps a persistent goal. `/auto on` auto-approves low-risk tools and still asks for high-risk shell (recursive delete, network install, privilege escalation). `/statusline` picks the footer fields, including from a short description (model, effort, tokens, context percent, context size, cache hit when the API reports it). `/skill` lists and loads `SKILL.md` skills. `/plugin load` attaches a local skill folder, and `/plugin install owner/repo` clones a GitHub skill library. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. The mouse wheel and PgUp scroll inside the transcript; the host scrollbar does not. PgDn returns to the latest line. Resize repaints the frame from the new stdout size, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).

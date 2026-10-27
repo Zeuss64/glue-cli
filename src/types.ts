@@ -8,6 +8,10 @@ export type PermissionMode =
 export interface TokenUsage {
   input: number;
   output: number;
+  /** Tokens served from the prompt cache. Absent until the API reports them. */
+  cacheRead?: number;
+  /** Tokens written into the prompt cache. Absent until the API reports them. */
+  cacheWrite?: number;
 }
 
 export interface PermissionRules {

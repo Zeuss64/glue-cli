@@ -208,6 +208,46 @@ test("effort is output_config on Anthropic and omitted for chat completions", as
   assert.equal("output_config" in openaiBody, false);
 });
 
+test("cache reads are kept when the API reports them", async () => {
+  const anthropic = createLlmClient({
+    baseURL: "https://api.anthropic.com",
+    apiKey: "test-key",
+    model: "claude-test",
+    temperature: 0,
+    maxTokens: 8,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          type: "message",
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 80, output_tokens: 5, cache_read_input_tokens: 240, cache_creation_input_tokens: 10 },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+  });
+  const anthropicResult = await anthropic.stream([{ role: "user", content: "hi" }], [], undefined, () => {});
+  assert.deepEqual(anthropicResult.usage, { input: 80, output: 5, cacheRead: 240, cacheWrite: 10 });
+
+  const openai = createLlmClient({
+    baseURL: "https://api.openai.com/v1",
+    apiKey: "test-key",
+    model: "gpt-test",
+    temperature: 0,
+    maxTokens: 8,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 100, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 25 } },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+  });
+  const openaiResult = await openai.stream([{ role: "user", content: "hi" }], [], undefined, () => {});
+  assert.deepEqual(openaiResult.usage, { input: 100, output: 4, cacheRead: 25 });
+});
+
 test("anthropic client names the same key env vars when the key is missing", async () => {
   const client = createLlmClient({
     baseURL: "https://api.anthropic.com",

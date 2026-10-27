@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
 import { EFFORT_CYCLE, normalizeEffort, type EffortLevel } from "./effort.js";
@@ -7,6 +8,8 @@ import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
+import { formatPluginList, installPlugin, loadPlugin, listPlugins, removePlugin } from "./plugins.js";
+import { discoverSkills, formatSkillList, resolveSkill, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
 import { DESIGNED_STATUS_FIELDS, parseStatuslineRequest, parseStatuslineSpec, statuslineSpec, type StatusField } from "./statusline.js";
 
 export interface SlashCommand {
@@ -42,6 +45,10 @@ export interface CommandHost {
   /** Raw `/statusline` spec. Empty means the default fields. */
   statusline?: string;
   setStatusline?(spec: string): void;
+  /** Home for `~/.glue`. Tests pass a temp directory. */
+  home?: string;
+  activeSkill?: ActiveSkill | null;
+  setActiveSkill?(skill: ActiveSkill | null): void;
   push(text: string, kind?: "system" | "error"): void;
   setModel(model: string): void;
   /** Present in the TUI. `/model` with no id opens the picker instead of printing the id. */
@@ -88,7 +95,7 @@ const CATALOG: SlashCommand[] = [
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
   { name: "model", summary: "Open the model list, or /model <id> to set one", available: true },
-  { name: "effort", summary: "Open the effort picker, or /effort <level> to set one", available: true },
+  { name: "effort", summary: "Open the effort picker (alt+p), or /effort <level> to set one", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -114,12 +121,13 @@ const CATALOG: SlashCommand[] = [
   { name: "output-style", summary: "normal or concise", available: true },
   { name: "goal", summary: "Show or set a persistent goal for this session", available: true },
   { name: "auto", summary: "Auto-approve low-risk tools; high-risk still asks", available: true },
-  { name: "statusline", summary: "Choose the fields under the input", available: true },
+  { name: "statusline", summary: "Design the fields under the input from a short description", available: true },
+  { name: "skill", aliases: ["skills"], summary: "List skills, or /skill <name> to load one", available: true },
+  { name: "plugin", summary: "Load a local skill library or install one from GitHub", available: true },
   { name: "login", summary: "Account login", available: false, note: "Glue uses an API key. Set GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY." },
   { name: "logout", summary: "Sign out", available: false, note: "There is no account session. Unset the API key in your environment to stop using it." },
   { name: "mcp", summary: "MCP servers", available: false, note: "MCP servers are not in this build. Glue's tools are the built-in file, search, and optional shell tools." },
   { name: "ide", summary: "IDE integration", available: false, note: "IDE integration is not in this build. Run glue in the project directory." },
-  { name: "plugin", summary: "Plugins", available: false, note: "Plugins are not in this build. Add a profile at profiles/<name>/PROMPT.md instead." },
   { name: "hooks", summary: "Hooks", available: false, note: "Hooks are not in this build." },
   { name: "voice", summary: "Voice input", available: false, note: "Voice input is not in this build." },
   { name: "upgrade", summary: "Upgrade", available: false, note: "Upgrade by pulling this repository and running npm install && npm run build." },
@@ -130,7 +138,7 @@ const CATALOG: SlashCommand[] = [
   { name: "install-github-app", summary: "GitHub app", available: false, note: "GitHub app install is not in this build." },
 ];
 
-const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "effort", "permissions", "theme", "goal", "auto", "statusline"]);
+const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "effort", "permissions", "theme", "goal", "auto", "statusline", "plugin"]);
 
 export function commandCatalog(): SlashCommand[] {
   return CATALOG;
@@ -192,7 +200,7 @@ export function resolveSubmittedSlash(input: string, highlightIndex: number): st
 
 export function helpText(): string {
   const lines = CATALOG.filter((command) => command.available).map((command) => `/${command.name.padEnd(16)} ${command.summary}`);
-  return ["Glue Cli commands", "", ...lines, "", "Unavailable here: /login /mcp /ide /plugin /hooks /voice /desktop"].join("\n");
+  return ["Glue Cli commands", "", ...lines, "", "Unavailable here: /login /mcp /ide /hooks /voice /desktop"].join("\n");
 }
 
 export async function runSlashCommand(input: string, host: CommandHost): Promise<void> {
@@ -211,6 +219,16 @@ export async function runSlashCommand(input: string, host: CommandHost): Promise
     }
   }
   if (!command) {
+    const skills = discoverSkills({ workspace: host.workspace, home: host.home ?? homedir() });
+    const skill = resolveSkill(skills, parsed.name);
+    if (skill === "ambiguous") {
+      host.push(`技能 ${parsed.name} 有多个来源。用 /skill <plugin>:<name>。`, "error");
+      return;
+    }
+    if (skill) {
+      await activateSkill(skill, parsed.args, host);
+      return;
+    }
     host.push(`Unknown command: /${parsed.name}`, "error");
     return;
   }
@@ -388,6 +406,12 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
     case "statusline":
       applyStatusline(args, host);
       return;
+    case "skill":
+      await applySkill(args, host);
+      return;
+    case "plugin":
+      applyPlugin(args, host);
+      return;
     default:
       host.push(`/${name} is not wired in this build.`, "error");
   }
@@ -461,7 +485,7 @@ function applyConfig(args: string, host: CommandHost): void {
       return;
     }
     if (parsed.kind === "invalid") {
-      host.push("不认识这些状态栏字段。可用：hint, model, effort, tokens, cwd, branch, goal, shell, session。", "error");
+      host.push("不认识这些状态栏字段。可用：hint, model, effort, tokens, context, contextSize, cache, cwd, branch, goal, shell, session。", "error");
       return;
     }
     const fields = parsed.kind === "set" ? parsed.fields : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parseStatuslineSpec("");
@@ -523,8 +547,10 @@ function applyStatusline(args: string, host: CommandHost): void {
       [
         `状态栏：${fields.join(" · ")}`,
         "右侧始终显示 manual / auto。",
-        "用法：/statusline model effort tokens，/statusline 设计，/statusline reset。",
-        "字段：hint, model, effort, tokens, cwd, branch, goal, shell, session。",
+        "用法：/statusline model effort tokens，或用一句话描述，例如 /statusline 加模型、effort、token用量、上下文占用百分比、窗口大小和缓存命中率。",
+        "/statusline 设计 用更完整的一行，/statusline reset 恢复默认。",
+        "字段：hint, model, effort, tokens, context, contextSize, cache, cwd, branch, goal, shell, session。",
+        "context 是窗口占用百分比，contextSize 是窗口大小，cache 是缓存命中率（接口返回后才显示）。",
       ].join("\n"),
     );
     return;
@@ -534,13 +560,98 @@ function applyStatusline(args: string, host: CommandHost): void {
     return;
   }
   if (parsed.kind === "invalid") {
-    host.push("不认识这些字段。试试 /statusline model tokens，或 /statusline 设计。", "error");
+    host.push("不认识这些字段。试试 /statusline model tokens，或 /statusline 加模型和上下文占用百分比。", "error");
     return;
   }
   const fields: StatusField[] =
     parsed.kind === "reset" ? [...parseStatuslineSpec("")] : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parsed.fields;
   host.setStatusline(statuslineSpec(fields));
   host.push(`状态栏已设为：${fields.join(" · ")}`);
+}
+
+async function applySkill(args: string, host: CommandHost): Promise<void> {
+  const skills = discoverSkills({ workspace: host.workspace, home: host.home ?? homedir() });
+  const trimmed = args.trim();
+  if (!trimmed || trimmed === "list" || trimmed === "列表") {
+    host.push(formatSkillList(skills));
+    return;
+  }
+  if (["clear", "none", "off", "reset", "清除"].includes(trimmed.toLowerCase())) {
+    host.setActiveSkill?.(null);
+    host.push("已取消当前技能。");
+    return;
+  }
+  const space = trimmed.search(/\s/);
+  const name = space === -1 ? trimmed : trimmed.slice(0, space);
+  const request = space === -1 ? "" : trimmed.slice(space + 1).trim();
+  const skill = resolveSkill(skills, name);
+  if (skill === "ambiguous") {
+    host.push(`技能 ${name} 有多个来源。用 /skill <plugin>:<name>。`, "error");
+    return;
+  }
+  if (!skill) {
+    host.push(`没有技能 ${name}。/skill 查看列表，/plugin load <目录> 或 /plugin install <owner/repo> 安装。`, "error");
+    return;
+  }
+  await activateSkill(skill, request, host);
+}
+
+async function activateSkill(skill: Skill, request: string, host: CommandHost): Promise<void> {
+  const active = toActiveSkill(skill);
+  host.setActiveSkill?.(active);
+  host.push(`已加载技能 ${skill.id}${skill.description ? `：${skill.description}` : ""}`);
+  if (host.setActiveSkill) {
+    await host.runTurn(request || `Follow the active skill "${skill.id}".`);
+    return;
+  }
+  const prompt = [`Follow this skill (${skill.id}).`, skill.body, request].filter(Boolean).join("\n\n");
+  await host.runTurn(prompt);
+}
+
+function applyPlugin(args: string, host: CommandHost): void {
+  const home = host.home ?? homedir();
+  const workspace = host.workspace;
+  const trimmed = args.trim();
+  if (!trimmed || trimmed === "list" || trimmed === "列表") {
+    host.push(formatPluginList(listPlugins({ home, workspace })));
+    return;
+  }
+  const space = trimmed.search(/\s/);
+  const sub = (space === -1 ? trimmed : trimmed.slice(0, space)).toLowerCase();
+  const target = space === -1 ? "" : trimmed.slice(space + 1).trim();
+  try {
+    if (sub === "install" || sub === "add") {
+      if (!target) {
+        host.push("用法：/plugin install <owner/repo|目录>", "error");
+        return;
+      }
+      const record = installPlugin(target, { home, workspace });
+      host.push(`已安装插件 ${record.name}（${record.scope}）。/skill 查看技能。`);
+      return;
+    }
+    if (sub === "load") {
+      if (!target) {
+        host.push("用法：/plugin load <目录>", "error");
+        return;
+      }
+      const record = loadPlugin(target, { workspace });
+      host.push(`已加载插件 ${record.name}：${record.path}`);
+      return;
+    }
+    if (sub === "remove" || sub === "uninstall" || sub === "rm") {
+      if (!target) {
+        host.push("用法：/plugin remove <name>", "error");
+        return;
+      }
+      const removed = removePlugin(target, { home, workspace });
+      host.push(`已移除插件 ${removed}。`);
+      return;
+    }
+    const record = installPlugin(trimmed, { home, workspace });
+    host.push(`已安装插件 ${record.name}。/skill 查看技能。`);
+  } catch (error) {
+    host.push(error instanceof Error ? error.message : String(error), "error");
+  }
 }
 
 function applyEffort(args: string, host: CommandHost): void {

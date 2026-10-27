@@ -1,4 +1,4 @@
-import type { ChatMessage, LlmDelta, LlmResult, ToolCall, ToolDef } from "../types.js";
+import type { ChatMessage, LlmDelta, LlmResult, TokenUsage, ToolCall, ToolDef } from "../types.js";
 import { createAnthropicClient } from "./anthropic.js";
 import { resolveProtocol, type ApiClientOptions } from "./protocol.js";
 import { consumeSse } from "./sse.js";
@@ -25,7 +25,7 @@ export interface OpenAIClientOptions {
 interface Acc {
   text: string;
   tools: Array<{ id: string; name: string; arguments: string }>;
-  usage: { input: number; output: number };
+  usage: TokenUsage;
   finish: string | null;
 }
 
@@ -145,7 +145,7 @@ async function post(
 }
 
 function finishAcc(acc: Acc, onDelta: (delta: LlmDelta) => void): LlmResult {
-  if (acc.usage.input || acc.usage.output) onDelta({ usage: acc.usage });
+  if (acc.usage.input || acc.usage.output || acc.usage.cacheRead || acc.usage.cacheWrite) onDelta({ usage: acc.usage });
   const toolCalls: ToolCall[] = acc.tools
     .filter((tool) => tool.name)
     .map((tool, index) => ({
@@ -161,10 +161,21 @@ function absorb(acc: Acc, payload: unknown, onDelta: (delta: LlmDelta) => void):
   const record = payload as Record<string, unknown>;
   const usage = asRecord(record.usage);
   if (usage) {
-    acc.usage = {
+    const next: TokenUsage = {
       input: numberOf(usage.prompt_tokens ?? usage.input_tokens),
       output: numberOf(usage.completion_tokens ?? usage.output_tokens),
     };
+    const details = asRecord(usage.prompt_tokens_details);
+    const cached = typeof details?.cached_tokens === "number"
+      ? details.cached_tokens
+      : typeof usage.cached_tokens === "number"
+        ? usage.cached_tokens
+        : typeof usage.cache_read_input_tokens === "number"
+          ? usage.cache_read_input_tokens
+          : undefined;
+    if (cached !== undefined) next.cacheRead = cached;
+    if (typeof usage.cache_creation_input_tokens === "number") next.cacheWrite = usage.cache_creation_input_tokens;
+    acc.usage = next;
   }
   const choice = asRecord((record.choices as unknown[] | undefined)?.[0]);
   if (!choice) return;

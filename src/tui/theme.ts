@@ -6,6 +6,8 @@ export interface Theme {
   border: string;
   muted: string;
   text: string;
+  /** User `>` lines. Distinct from `text`, which is the assistant body. */
+  user: string;
   ok: string;
   bad: string;
   add: string;
@@ -20,6 +22,7 @@ export const THEMES: Record<Theme["name"], Theme> = {
     border: "#6b625c",
     muted: "gray",
     text: "white",
+    user: "#7DD3FC",
     ok: "green",
     bad: "red",
     add: "green",
@@ -38,6 +41,7 @@ export const THEMES: Record<Theme["name"], Theme> = {
     border: "#a8a29e",
     muted: "gray",
     text: "black",
+    user: "#0369A1",
     ok: "green",
     bad: "red",
     add: "green",
@@ -56,6 +60,7 @@ export const THEMES: Record<Theme["name"], Theme> = {
     border: "gray",
     muted: "gray",
     text: "white",
+    user: "cyan",
     ok: "green",
     bad: "red",
     add: "green",
