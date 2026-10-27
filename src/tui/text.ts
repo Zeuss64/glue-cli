@@ -92,35 +92,58 @@ export function displayWidth(text: string): number {
 }
 
 export function visualLines(text: string, columns: number): number {
-  return wrapLines(text, columns).length;
+  const width = Math.max(1, columns);
+  if (!text) return 1;
+  let lines = 0;
+  for (const line of text.split("\n")) {
+    const taken = displayWidth(line);
+    lines += Math.max(1, Math.ceil(taken / width));
+  }
+  return lines;
 }
 
-/** Hard newlines and display-width wraps. An empty string is one line. */
-export function wrapLines(text: string, columns: number): string[] {
-  const width = Math.max(1, columns);
-  if (!text) return [""];
-  const out: string[] = [];
-  for (const line of text.split("\n")) {
-    if (!line) {
-      out.push("");
-      continue;
-    }
-    let buf = "";
-    let used = 0;
-    for (const part of graphemes(line)) {
-      const partWidth = graphemeWidth(part.segment);
-      if (buf && used + partWidth > width) {
-        out.push(buf);
-        buf = part.segment;
-        used = partWidth;
-      } else {
-        buf += part.segment;
-        used += partWidth;
-      }
-    }
-    out.push(buf);
+/** Display columns `[startCol, startCol + maxCols)` of one logical line. A wide grapheme that straddles an edge is skipped. */
+export function sliceColumns(text: string, startCol: number, maxCols: number): string {
+  if (maxCols <= 0) return "";
+  const end = Math.max(0, startCol) + maxCols;
+  let col = 0;
+  let out = "";
+  for (const part of graphemes(text)) {
+    const width = graphemeWidth(part.segment);
+    if (col >= end) break;
+    if (col >= startCol && (width === 0 || col + width <= end)) out += part.segment;
+    col += width;
   }
-  return out.length ? out : [""];
+  return out;
+}
+
+/**
+ * Visual lines `[start, start + count)` after wrapping at `columns`.
+ * The result is at most `count` visual lines, so it can be painted inside a viewport.
+ */
+export function sliceVisual(text: string, columns: number, start: number, count: number): string {
+  if (count <= 0 || start < 0) return "";
+  const width = Math.max(1, columns);
+  const end = start + count;
+  const kept: string[] = [];
+  let index = 0;
+  for (const line of text.split("\n")) {
+    const wraps = Math.max(1, Math.ceil(displayWidth(line) / width) || 1);
+    const lineStart = index;
+    const lineEnd = index + wraps;
+    index = lineEnd;
+    if (lineEnd <= start) continue;
+    if (lineStart >= end) break;
+    const from = Math.max(lineStart, start);
+    const to = Math.min(lineEnd, end);
+    kept.push(sliceWrapped(line, width, from - lineStart, to - from));
+  }
+  return kept.join("\n");
+}
+
+function sliceWrapped(line: string, width: number, skipVisual: number, takeVisual: number): string {
+  if (takeVisual <= 0) return "";
+  return sliceColumns(line, skipVisual * width, takeVisual * width);
 }
 
 export function tailColumns(text: string, columns: number): string {

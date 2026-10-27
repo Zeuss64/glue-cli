@@ -15,24 +15,25 @@ import {
 
 test("one model still opens a list that can move, select, and cancel", () => {
   const state = openModelPicker("solo", [], "auto");
-  const only = { ...state, items: ["solo"], selected: 0 };
-  assert.deepEqual(modelChoices("solo", [], []), ["solo"]);
-  assert.equal(modelPosition(only), "1/1 · solo");
-  assert.equal(reduceModelPicker(only, { down: true }).state.selected, 0);
-  assert.equal(reduceModelPicker(only, { up: true }).state.selected, 0);
-  assert.deepEqual(reduceModelPicker(only, { return: true }).effect, { type: "select", model: "solo" });
-  assert.equal(reduceModelPicker(only, { escape: true }).effect?.type, "cancel");
-  assert.equal(reduceModelPicker(only, { ctrlC: true }).effect?.type, "cancel");
+  assert.deepEqual(state.items, ["solo"]);
+  assert.equal(modelPosition(state), "1/1 · solo");
+  assert.equal(reduceModelPicker(state, { down: true }).state.selected, 0);
+  assert.equal(reduceModelPicker(state, { up: true }).state.selected, 0);
+  assert.deepEqual(reduceModelPicker(state, { return: true }).effect, { type: "select", model: "solo" });
+  assert.equal(reduceModelPicker(state, { escape: true }).effect?.type, "cancel");
+  assert.equal(reduceModelPicker(state, { ctrlC: true }).effect?.type, "cancel");
 });
 
-test("choices put the current model first, then config, then suggestions, once each", () => {
-  const items = modelChoices("gpt-4o", ["gpt-4o-mini", "gpt-4o", "  "]);
-  assert.equal(items[0], "gpt-4o");
-  assert.equal(items[1], "gpt-4o-mini");
-  assert.equal(new Set(items).size, items.length);
-  assert.ok(items.includes("claude-sonnet-4-5"));
-  assert.deepEqual(items.slice(0, 2), ["gpt-4o", "gpt-4o-mini"]);
-  for (const id of SUGGESTED_MODELS) assert.ok(items.includes(id));
+test("the list is the configured models, or only the current id when models is empty", () => {
+  assert.deepEqual(modelChoices("sensenova-6.8-flash-lite", []), ["sensenova-6.8-flash-lite"]);
+  const items = modelChoices("sensenova-6.8-flash-lite", ["sensenova-6.8-flash", "sensenova-6.8-flash-lite", "  "]);
+  assert.deepEqual(items, ["sensenova-6.8-flash-lite", "sensenova-6.8-flash"]);
+  for (const id of SUGGESTED_MODELS) assert.equal(items.includes(id), false);
+  const withCurrent = modelChoices("gpt-4o", ["gpt-4o-mini", "gpt-4o"]);
+  assert.deepEqual(withCurrent, ["gpt-4o", "gpt-4o-mini"]);
+  assert.equal(new Set(withCurrent).size, withCurrent.length);
+  const opted = modelChoices("solo", [], ["extra"]);
+  assert.deepEqual(opted, ["solo", "extra"]);
 });
 
 test("arrows move the highlight, left and right cycle effort, and the hint is N/M", () => {

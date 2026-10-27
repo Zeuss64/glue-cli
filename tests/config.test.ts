@@ -12,6 +12,7 @@ import {
   loadSessionConfig,
   redactKey,
 } from "../src/config.js";
+import { SUGGESTED_MODELS, modelChoices } from "../src/tui/model-picker.js";
 
 function workspace(files: Record<string, string> = {}): string {
   const dir = mkdtempSync(path.join(tmpdir(), "glue-cfg-"));
@@ -139,6 +140,26 @@ effort = "high"
   assert.equal(loose.effort, "auto");
   assert.equal(loadConfig({ cwd, env: { GLUE_EFFORT: "max" } }).effort, "max");
   assert.equal(loadConfig({ cwd, env: {} }).effort, "high");
+});
+
+test("one base url lists every models entry, and an empty models list is only model", () => {
+  const cwd = workspace({
+    ".agent/config.toml": `
+model = "sensenova-6.8-flash-lite"
+base_url = "https://api.example.test/v1"
+models = ["sensenova-6.8-flash-lite", "sensenova-6.8-flash"]
+`,
+  });
+  const loaded = loadConfig({ cwd, env: {} });
+  assert.equal(loaded.model, "sensenova-6.8-flash-lite");
+  assert.deepEqual(modelChoices(loaded.model, loaded.models), ["sensenova-6.8-flash-lite", "sensenova-6.8-flash"]);
+  for (const id of SUGGESTED_MODELS) assert.equal(modelChoices(loaded.model, loaded.models).includes(id), false);
+  const only = loadConfig({
+    cwd: workspace({ ".agent/config.toml": `model = "only-custom"\nbase_url = "https://api.example.test/v1"\n` }),
+    env: {},
+  });
+  assert.deepEqual(only.models, []);
+  assert.deepEqual(modelChoices(only.model, only.models), ["only-custom"]);
 });
 
 test("the user config path is under the home directory on Unix and Windows", () => {

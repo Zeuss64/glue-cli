@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import test from "node:test";
-import { CommandHelp, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, StatusBar, ToolBlock } from "../src/tui/components.js";
+import { CommandHelp, EffortPicker, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, StatusBar, ToolBlock } from "../src/tui/components.js";
 import { THEMES } from "../src/tui/theme.js";
 
 const theme = THEMES.ansi;
@@ -123,4 +123,20 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.doesNotMatch(helpFrame, /\/login hidden/);
   assert.match(helpFrame, /不可用命令只提示一行/);
   help.unmount();
+
+  const effort = render(
+    createElement(EffortPicker, {
+      theme,
+      levels: ["low", "medium", "high", "xhigh", "max", "auto"],
+      selected: 2,
+    }),
+  );
+  const effortFrame = effort.lastFrame() ?? "";
+  assert.match(effortFrame, /Effort/);
+  assert.match(effortFrame, /\[high\]/);
+  assert.match(effortFrame, /low/);
+  assert.match(effortFrame, /auto/);
+  assert.match(effortFrame, /enter set/);
+  assert.match(effortFrame, /esc cancel/);
+  effort.unmount();
 });

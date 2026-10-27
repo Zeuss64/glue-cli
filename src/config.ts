@@ -175,7 +175,9 @@ export function defaultGlobalConfigToml(): string {
 model = "${DEFAULTS.model}"
 base_url = "${DEFAULTS.baseURL}"
 # protocol = "openai"
-# models = ["gpt-4o-mini"]
+# One base_url and key can serve several models. /model lists these ids.
+# Leave models unset and /model shows only model.
+# models = ["gpt-4o-mini", "gpt-4o"]
 # effort = "auto"
 # goal = ""
 # approval = "manual"

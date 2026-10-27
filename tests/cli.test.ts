@@ -136,7 +136,7 @@ test("glue --version and --help", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cli-"));
   const version = await run(["--version"], {}, cwd);
   assert.equal(version.code, 0);
-  assert.match(version.stdout, /^glue 0\.1\.0/);
+  assert.match(version.stdout, /^glue 0\.1\.1/);
   const help = await run(["--help"], {}, cwd);
   assert.match(help.stdout, /Glue Cli/);
 });

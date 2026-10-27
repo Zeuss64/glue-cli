@@ -53,7 +53,7 @@ export interface FileSnap {
 }
 
 export type TranscriptItem =
-  | { id: string; type: "user"; text: string; queued?: boolean; attached?: string[] }
+  | { id: string; type: "user"; text: string; queued?: boolean; attached?: string[]; gap?: boolean }
   | { id: string; type: "assistant"; text: string; streaming?: boolean }
   | { id: string; type: "system"; text: string }
   | { id: string; type: "error"; text: string }
@@ -66,6 +66,8 @@ export type TranscriptItem =
       summary?: string;
       diff?: DiffLine[];
       detail?: string;
+      /** Set on a viewport slice. Omitted or true paints the tool name row. */
+      showHeader?: boolean;
     };
 
 export interface LlmDelta {

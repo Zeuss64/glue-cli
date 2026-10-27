@@ -1,6 +1,9 @@
 import { cycleEffort, type EffortLevel } from "../effort.js";
 
-/** Public model ids offered after the current model and `models` from config. */
+/**
+ * Optional ids a caller can pass as `suggestions` when `models` is empty.
+ * The picker does not add these on its own.
+ */
 export const SUGGESTED_MODELS = [
   "gpt-4o-mini",
   "gpt-4o",
@@ -30,11 +33,16 @@ export interface ModelPickerKey {
   ctrlC?: boolean;
 }
 
-/** Current model, then configured ids, then suggestions. The current id is listed once. */
+/**
+ * Ids the picker shows. `models` from config wins: the current id, then that
+ * list, each once. Built-in suggestions are not added on top of a custom list.
+ * When `models` is empty, the list is only the current id unless `suggestions`
+ * is passed explicitly.
+ */
 export function modelChoices(
   current: string,
   configured: readonly string[] = [],
-  suggestions: readonly string[] = SUGGESTED_MODELS,
+  suggestions: readonly string[] = [],
 ): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -44,9 +52,12 @@ export function modelChoices(
     seen.add(name);
     out.push(name);
   };
+  const listed = configured.map((id) => id.trim()).filter(Boolean);
   push(current);
-  for (const id of configured) push(id);
-  for (const id of suggestions) push(id);
+  for (const id of listed) push(id);
+  if (!listed.length) {
+    for (const id of suggestions) push(id);
+  }
   if (!out.length) push("gpt-4o-mini");
   return out;
 }
