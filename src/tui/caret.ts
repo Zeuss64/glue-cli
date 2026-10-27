@@ -5,6 +5,22 @@ export function caretVisible(tick: number): boolean {
   return tick % 2 === 0;
 }
 
+/**
+ * Placeholder and caret while an IME composition may own the caret cell.
+ * The placeholder is only for a truly empty buffer that is not composing.
+ * A composition is the only glyph at the caret: the inverse block does not blink on top of it.
+ * An empty buffer keeps a steady caret (no timer) so a repaint does not wipe the IME string.
+ */
+export function promptCaretMode(text: string, preedit = ""): "compose" | "steady" | "blink" {
+  if (preedit.length > 0) return "compose";
+  if (text.length === 0) return "steady";
+  return "blink";
+}
+
+export function showPromptPlaceholder(text: string, preedit = "", placeholder?: string): boolean {
+  return text.length === 0 && preedit.length === 0 && Boolean(placeholder);
+}
+
 export interface PromptSegment {
   text: string;
   inverse: boolean;

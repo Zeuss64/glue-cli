@@ -57,6 +57,33 @@ test("status bar and permission dialog use the Glue labels", () => {
   }
   prompt.unmount();
 
+  const placeholder = "Ask Glue to change this project";
+  const idle = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "", cursor: 0, placeholder })),
+  );
+  const idleFrame = stripAnsi(idle.lastFrame() ?? "");
+  const caretLine = idleFrame.split("\n").find((line) => line.includes(">")) ?? "";
+  assert.match(caretLine, />/);
+  assert.match(caretLine, /Ask Glue to change this project/);
+  assert.ok(caretLine.indexOf("Ask") > caretLine.indexOf(">"));
+  assert.ok(caretLine.indexOf("Ask") - caretLine.indexOf(">") > 4);
+  idle.unmount();
+
+  const composing = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "", cursor: 0, placeholder, preedit: "xiao" })),
+  );
+  const composingFrame = stripAnsi(composing.lastFrame() ?? "");
+  assert.match(composingFrame, /xiao/);
+  assert.equal(composingFrame.split("xiao").length - 1, 1);
+  assert.doesNotMatch(composingFrame, /Ask Glue/);
+  composing.unmount();
+
+  const typed = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "hi", cursor: 2, placeholder })),
+  );
+  assert.doesNotMatch(stripAnsi(typed.lastFrame() ?? ""), /Ask Glue/);
+  typed.unmount();
+
   const dialog = render(
     createElement(PermissionDialog, {
       theme,

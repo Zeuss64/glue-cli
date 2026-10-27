@@ -57,7 +57,7 @@ import { useConsoleInput } from "./console-input.js";
 import { openEffortPicker, reduceEffortPicker, type EffortPickerState } from "./effort-picker.js";
 import { prevGrapheme } from "./text.js";
 import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
-import { cycleSlash, type SlashCycle } from "./complete.js";
+import { cycleSlash, slashTabIndex, type SlashCycle } from "./complete.js";
 import { imeAnchor, statusAreaRows } from "./ime.js";
 import { isEffortPickerShortcut, MOUSE_TRACKING_ON } from "./keys.js";
 import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
@@ -1543,7 +1543,11 @@ function App({ boot }: { boot: Boot }) {
       const prior = completionRef.current;
       const continuing = Boolean(prior && (state.text === `/${prior.lastName}` || state.text === `/${prior.lastName} `));
       const prefix = continuing && prior ? prior.prefix : state.text.slice(1);
-      const index = continuing && prior ? prior.index + 1 : 0;
+      const index = slashTabIndex({
+        cycling: continuing,
+        cycleIndex: prior ? prior.index + 1 : 0,
+        selectedIndex: slashIndexRef.current,
+      });
       const next = cycleSlash(prefix, index);
       if (next) {
         const name = next.names[next.index] ?? "";

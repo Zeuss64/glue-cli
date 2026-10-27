@@ -3,10 +3,11 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { filterCommands } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 import { readUiSettings, writeUiSettings } from "../src/settings.js";
 import { cacheHitPercent, formatStatusLeft, parseStatuslineRequest, parseStatuslineSpec } from "../src/statusline.js";
-import { cycleSlash } from "../src/tui/complete.js";
+import { cycleSlash, slashTabIndex } from "../src/tui/complete.js";
 import { imeAnchor } from "../src/tui/ime.js";
 import { RESIZE_REFLOW_SEQUENCE, RESTORE_TERMINAL_SEQUENCE, placeCursorSequence } from "../src/tui/screen.js";
 
@@ -30,6 +31,20 @@ test("the IME anchor sits on the caret inside the input border", () => {
   assert.equal(typed.column, 7);
   const han = imeAnchor({ frameRows: 29, frameCols: 80, text: "你", cursor: 1 });
   assert.equal(han.column, 7);
+});
+
+test("tab accepts the highlighted slash row instead of the nearest prefix", () => {
+  const names = filterCommands("status").map((command) => command.name);
+  const selected = names.indexOf("statusline");
+  assert.ok(selected > 0);
+  const accepted = cycleSlash("status", slashTabIndex({ cycling: false, cycleIndex: 0, selectedIndex: selected }));
+  assert.equal(accepted?.names[accepted.index], "statusline");
+  assert.match(accepted?.text ?? "", /^\/statusline/);
+  const nearest = cycleSlash("status", slashTabIndex({ cycling: false, cycleIndex: 0, selectedIndex: 0 }));
+  assert.equal(nearest?.names[nearest.index ?? 0], "status");
+  assert.notEqual(accepted?.text, nearest?.text);
+  const cycled = cycleSlash("status", slashTabIndex({ cycling: true, cycleIndex: selected + 1, selectedIndex: selected }));
+  assert.notEqual(cycled?.names[cycled.index], "statusline");
 });
 
 test("tab cycles ambiguous slash prefixes and accepts a unique one", () => {

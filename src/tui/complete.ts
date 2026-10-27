@@ -9,6 +9,17 @@ export interface SlashCycle {
 }
 
 /**
+ * Which match Tab should fill.
+ * Arrow movement owns the highlight: Tab accepts that row, not the shortest prefix.
+ * Repeated Tab with no new arrow movement still cycles from the last accepted row.
+ */
+export function slashTabIndex(opts: { cycling: boolean; cycleIndex: number; selectedIndex: number }): number {
+  if (opts.cycling) return opts.cycleIndex;
+  if (!Number.isFinite(opts.selectedIndex)) return 0;
+  return Math.floor(opts.selectedIndex);
+}
+
+/**
  * Prefix-complete a slash command.
  * One match accepts it (trailing space). Several matches cycle, and the slash
  * menu highlights the same row. The original prefix is kept so the second Tab

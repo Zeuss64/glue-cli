@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { caretVisible, promptSegments } from "../src/tui/caret.js";
+import { caretVisible, promptCaretMode, promptSegments, showPromptPlaceholder } from "../src/tui/caret.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "../src/tui/editor.js";
 import { emptyDecodeState, isEffortPickerShortcut, pushConsoleChunk } from "../src/tui/keys.js";
 import { displayWidth } from "../src/tui/text.js";
@@ -87,6 +87,15 @@ test("bracketed paste inserts newlines instead of submitting", () => {
   assert.equal(parsed.keys[0]?.input, "a\nb");
   assert.equal(parsed.keys[0]?.return, false);
   assert.equal(apply(emptyEditor(), "\x1b[200~a\nb\x1b[201~").text, "a\nb");
+});
+
+test("placeholder stays off the caret while IME preedit is showing", () => {
+  assert.equal(showPromptPlaceholder("", "", "Ask Glue to change this project"), true);
+  assert.equal(showPromptPlaceholder("", "xiao", "Ask Glue to change this project"), false);
+  assert.equal(showPromptPlaceholder("hi", "", "Ask Glue to change this project"), false);
+  assert.equal(promptCaretMode("", "xiao"), "compose");
+  assert.equal(promptCaretMode("", ""), "steady");
+  assert.equal(promptCaretMode("hi", ""), "blink");
 });
 
 test("the caret is visible on even ticks and covers one grapheme", () => {

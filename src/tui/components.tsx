@@ -9,7 +9,7 @@ import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
-import { promptSegments } from "./caret.js";
+import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
 import type { Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
@@ -178,34 +178,48 @@ export function PromptBox({
   /** IME composition, drawn inside the border when the host can see it. */
   preedit?: string;
 }) {
+  const composing = promptCaretMode(text, preedit ?? "") === "compose";
+  const blink = promptCaretMode(text, preedit ?? "") === "blink";
+  const showPlaceholder = showPromptPlaceholder(text, preedit ?? "", placeholder);
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (!blink) {
+      setTick(0);
+      return;
+    }
     setTick(0);
     const timer = setInterval(() => setTick((value) => value + 1), 530);
     return () => clearInterval(timer);
-  }, [text, cursor, anchor]);
-  const parts = promptSegments(text, cursor, anchor, tick);
-  const showPlaceholder = text.length === 0 && placeholder;
+  }, [text, cursor, anchor, blink]);
+  const parts = composing ? [] : promptSegments(text, cursor, anchor, tick);
   return (
     <Box flexDirection="column" marginTop={1} flexShrink={0}>
       {hint ? <Text color={theme.muted}>{hint}</Text> : null}
       <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1} flexShrink={0}>
-        <Text>
-          <Text color={theme.accent}>{"> "}</Text>
-          {parts.map((part, index) =>
-            part.inverse ? (
-              <Text key={index} inverse color={theme.text}>
-                {part.text}
-              </Text>
+        <Box flexShrink={0}>
+          <Text>
+            <Text color={theme.accent}>{"> "}</Text>
+            {composing ? (
+              <Text underline color={theme.text}>{preedit ?? ""}</Text>
             ) : (
-              <Text key={index} color={theme.text}>
-                {part.text}
-              </Text>
-            ),
-          )}
-          {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
-          {preedit ? <Text color={theme.accent}>{preedit}</Text> : null}
-        </Text>
+              parts.map((part, index) =>
+                part.inverse ? (
+                  <Text key={index} inverse color={theme.text}>
+                    {part.text}
+                  </Text>
+                ) : (
+                  <Text key={index} color={theme.text}>
+                    {part.text}
+                  </Text>
+                ),
+              )
+            )}
+          </Text>
+        </Box>
+        {showPlaceholder ? <Box flexGrow={1} /> : null}
+        {showPlaceholder ? (
+          <Text color={theme.muted} wrap="truncate-end">{placeholder}</Text>
+        ) : null}
       </Box>
     </Box>
   );
