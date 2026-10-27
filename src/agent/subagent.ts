@@ -1,5 +1,6 @@
 import type { AgentHooks } from "./loop.js";
 import { runAgentTurn } from "./loop.js";
+import { ULTRACODE_DESCRIPTION } from "../effort.js";
 import type { LlmClient } from "../llm/client.js";
 import { toolDefinitions } from "../tools/defs.js";
 import type { ToolContext } from "../tools/execute.js";
@@ -11,7 +12,7 @@ export function spawnSubagentTool(): ToolDef {
   return {
     name: SPAWN_SUBAGENT,
     description:
-      "Dispatch one subagent for an independent subtask. Available only while UltraCode is on (max thinking plus subagent dispatch). The subagent cannot spawn another subagent. Pass a self-contained prompt and wait for its report.",
+      `${ULTRACODE_DESCRIPTION}. Dispatch one independent step of the current task instead of doing a multi-step task in one pass. The subagent cannot spawn another subagent. Pass a self-contained prompt and wait for its report.`,
     parameters: {
       type: "object",
       additionalProperties: false,

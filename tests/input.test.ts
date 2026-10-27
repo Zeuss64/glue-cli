@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { caretVisible, promptCaretMode, promptSegments, showPromptPlaceholder } from "../src/tui/caret.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "../src/tui/editor.js";
-import { emptyDecodeState, isEffortPickerShortcut, pushConsoleChunk } from "../src/tui/keys.js";
+import { emptyDecodeState, isEffortPickerShortcut, pickerSurface, pushConsoleChunk } from "../src/tui/keys.js";
 import { displayWidth } from "../src/tui/text.js";
 
 function key(partial: Partial<KeyIn>): KeyIn {
@@ -220,7 +220,10 @@ test("tab is recognized from a raw byte, kitty, and modifyOtherKeys", () => {
   assert.equal(reduceEditor({ ...emptyEditor(), text: "/he", cursor: 3 }, key({ tab: true })).effect, "complete");
 });
 
-test("alt+p opens the effort picker and does not insert p", () => {
+test("alt+p opens the model and effort surface and does not insert p", () => {
+  assert.equal(pickerSurface("alt-p"), "model-effort");
+  assert.equal(pickerSurface("model"), "model-effort");
+  assert.equal(pickerSurface("effort"), "effort");
   const plain = pushConsoleChunk(emptyDecodeState(), "\x1bp").keys[0];
   assert.equal(isEffortPickerShortcut(plain ?? {}), true);
   assert.equal(plain?.meta, true);

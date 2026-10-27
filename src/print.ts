@@ -103,7 +103,7 @@ export async function runPrint(opts: {
   if (opts.config.ultracode) {
     ctx.spawnSubagent = (prompt, readOnly) =>
       runSpawnedSubagent({
-        client: createLlmClient({ ...opts.config, effort: "max" }),
+        client: createLlmClient({ ...opts.config, effort: opts.config.effort }),
         task: prompt,
         ctx,
         shellEnabled: opts.config.shellEnabled && !readOnly,
