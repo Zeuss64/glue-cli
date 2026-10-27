@@ -8,7 +8,13 @@ import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
 import { installPlugin, loadPlugin, parsePluginSource } from "../src/plugins.js";
 import { buildSystemPrompt } from "../src/prompt.js";
-import { discoverSkills, parseSkillMarkdown, resolveSkill } from "../src/skills.js";
+import { discoverSkills, parseSkillMarkdown, resolveSkill, type ActiveSkill } from "../src/skills.js";
+
+type SkillHost = CommandHost & { lines: string[]; activeSkill: ActiveSkill | null };
+
+function activeSkillId(session: { activeSkill?: ActiveSkill | null }): string | undefined {
+  return session.activeSkill?.id;
+}
 
 function writeSkill(dir: string, name: string, body: string): void {
   const folder = path.join(dir, name);
@@ -64,7 +70,7 @@ test("/skill loads a skill and /plugin load and install persist the library", as
   await runSlashCommand("/skill", session);
   assert.match(session.lines.at(-1) ?? "", /pack:review/);
   await runSlashCommand("/skill review look at the diff", session);
-  assert.equal(session.activeSkill?.id, "pack:review");
+  assert.equal(activeSkillId(session), "pack:review");
   assert.equal(turns.at(-1), "look at the diff");
   assert.match(session.lines.at(-1) ?? "", /已加载技能 pack:review/);
   await runSlashCommand("/skill review", session);
@@ -84,9 +90,9 @@ test("/skill loads a skill and /plugin load and install persist the library", as
   await runSlashCommand("/review", session);
   assert.match(turns.at(-1) ?? "", /Review the current git diff/);
   assert.equal(turns.length, beforeReview + 1);
-  assert.equal(session.activeSkill?.id, "pack:review");
+  assert.equal(activeSkillId(session), "pack:review");
   await runSlashCommand("/skill clear", session);
-  assert.equal(session.activeSkill, null);
+  assert.equal(session.activeSkill === null, true);
 
   const installed = installPlugin("octo/notes", {
     home,
@@ -105,7 +111,7 @@ test("/skill loads a skill and /plugin load and install persist the library", as
   const after = discoverSkills({ workspace, home });
   assert.ok(after.some((skill) => skill.id === "notes:notes"));
   await runSlashCommand("/notes keep this", session);
-  assert.equal(session.activeSkill?.id, "notes:notes");
+  assert.equal(activeSkillId(session), "notes:notes");
   assert.equal(turns.at(-1), "keep this");
   await runSlashCommand("/plugin", session);
   assert.match(session.lines.at(-1) ?? "", /notes/);
@@ -119,10 +125,10 @@ test("/skill loads a skill and /plugin load and install persist the library", as
   assert.throws(() => parsePluginSource("https://example.com/octo/notes"), /GitHub/);
 });
 
-function host(workspace: string, home: string, turns: string[]): CommandHost & { lines: string[] } {
+function host(workspace: string, home: string, turns: string[]): SkillHost {
   const lines: string[] = [];
   const config = loadConfig({ cwd: workspace, env: {}, home });
-  const value: CommandHost & { lines: string[] } = {
+  const value: SkillHost = {
     workspace,
     home,
     config,
