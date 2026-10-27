@@ -6,6 +6,7 @@ import {
   fitTranscript,
   frameRows,
   frameSize,
+  layoutColumns,
   moveScroll,
   pageLines,
   reconcileSize,
@@ -52,6 +53,10 @@ test("the frame stays one row under the terminal so Ink does not erase scrollbac
   assert.equal(frameRows(undefined), 23);
   assert.equal(frameRows(0), 23);
   assert.equal(transcriptBudget(23, 4), 13);
+  assert.equal(layoutColumns(100), 99);
+  assert.equal(layoutColumns(2), 1);
+  assert.equal(layoutColumns(undefined), 79);
+  assert.equal(layoutColumns(0), 79);
 });
 
 test("a long assistant message is tailed to the row budget", () => {

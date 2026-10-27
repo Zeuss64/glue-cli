@@ -7,14 +7,25 @@ import { displayWidth } from "./text.js";
  * The IME anchors to the console cursor, not to Ink's inverse block. After
  * each paint Ink leaves the cursor at the end of the frame (bottom-left),
  * which is why pinyin showed up outside the border. After every stdout write
- * we CUP onto this cell and show the cursor so Windows Terminal (and other
- * VT hosts) attach preedit/candidates to the caret. The inverse block stays
- * on the same cell.
+ * we save that position, CUP onto this cell, and hide the hardware cursor.
+ * Windows Terminal (and other VT hosts) attach preedit/candidates to the
+ * cursor position even while the glyph is hidden, so only the inverse block
+ * blinks. The saved position is restored before the next paint.
  *
- * Residual limits: some conhost builds ignore CUP/`bVisible` and keep the
- * candidate window on the window edge. Glue cannot place the IME overlay
- * anywhere except the console cursor.
+ * Residual limits: some conhost builds ignore CUP and keep the candidate
+ * window on the window edge. Glue cannot place the IME overlay anywhere
+ * except the console cursor.
  */
+
+/** Built-in footer, plus one row per visible custom status line. Blank lines add nothing. */
+export function statusAreaRows(customLines: readonly string[]): number {
+  let extra = 0;
+  for (const line of customLines) {
+    if (line.trim()) extra += 1;
+  }
+  return 1 + extra;
+}
+
 export function imeAnchor(opts: {
   frameRows: number;
   frameCols: number;

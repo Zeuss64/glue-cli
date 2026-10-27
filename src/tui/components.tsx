@@ -268,7 +268,7 @@ export function StatusBar({
   );
 }
 
-/** Custom `/statusline` command output, above the built-in footer. */
+/** Custom `/statusline` command output, above the built-in footer. Blank stdout renders nothing. */
 export function CustomStatusLine({
   theme,
   lines,
@@ -276,12 +276,13 @@ export function CustomStatusLine({
   theme: Theme;
   lines: string[];
 }) {
-  if (!lines.length) return null;
+  const visible = lines.filter((line) => line.trim().length > 0);
+  if (!visible.length) return null;
   return (
     <Box flexDirection="column" flexShrink={0}>
-      {lines.map((line, index) => (
+      {visible.map((line, index) => (
         <Text key={index} color={theme.muted} wrap="truncate-end">
-          {line || " "}
+          {line}
         </Text>
       ))}
     </Box>
