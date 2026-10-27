@@ -99,7 +99,7 @@ test("missing api key names the Glue env vars", async () => {
   );
 });
 
-test("default profile is loaded and the cpld stub is not", () => {
+test("default and cpld load the same CPLD prompt v0.5", () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-prompt-"));
   const prompt = buildSystemPrompt({
     workspace: cwd,
@@ -109,7 +109,14 @@ test("default profile is loaded and the cpld stub is not", () => {
     outputStyle: "normal",
   });
   assert.match(prompt, /You are Glue/);
-  assert.match(prompt, /No domain-specific rules are active/);
+  assert.match(prompt, /Active profile: default/);
+  assert.match(prompt, /CPLD system prompt \(v0\.5\)/);
+  assert.match(prompt, /PAP_IO_LOC MUST match exactly/);
+  const loaded = loadProfileText("default", cwd);
+  const cpldLoaded = loadProfileText("cpld", cwd);
+  assert.ok(loaded);
+  assert.ok(cpldLoaded);
+  assert.equal(cpldLoaded.text, loaded.text);
   const cpld = buildSystemPrompt({
     workspace: cwd,
     profile: "cpld",
@@ -117,8 +124,8 @@ test("default profile is loaded and the cpld stub is not", () => {
     shellEnabled: false,
     outputStyle: "concise",
   });
-  assert.equal(loadProfileText("cpld", cwd), undefined);
-  assert.doesNotMatch(cpld, /No domain-specific rules are active/);
+  assert.match(cpld, /Active profile: cpld/);
+  assert.match(cpld, /CPLD system prompt \(v0\.5\)/);
   assert.match(cpld, /Profile: cpld/);
 });
 
