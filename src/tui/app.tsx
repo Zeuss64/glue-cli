@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, render, Text, useApp, useStdout } from "ink";
@@ -24,7 +25,8 @@ import { expandMentions, mentionQuery } from "../mentions.js";
 import { nextMode, type ApprovalMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
 import { writeUiSettings } from "../settings.js";
-import { parseStatuslineSpec } from "../statusline.js";
+import { discoverSkills, resolveSkill, toActiveSkill, type ActiveSkill } from "../skills.js";
+import { addTokenUsage, parseStatuslineSpec } from "../statusline.js";
 import { decideResume, openResumePicker, reduceResumePicker, resumePickerView } from "../resume.js";
 import { snapsToRestore } from "../rewind.js";
 import { Sandbox } from "../sandbox.js";
@@ -49,7 +51,7 @@ import { prevGrapheme } from "./text.js";
 import { frameRows, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
 import { cycleSlash, type SlashCycle } from "./complete.js";
 import { imeAnchor } from "./ime.js";
-import { MOUSE_TRACKING_ON } from "./keys.js";
+import { isEffortPickerShortcut, MOUSE_TRACKING_ON } from "./keys.js";
 import { bindInkClear, placeCursorSequence, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
   ChoiceDialog,
@@ -200,6 +202,7 @@ function App({ boot }: { boot: Boot }) {
   const goalRef = useRef(goal);
   const approvalRef = useRef(approval);
   const statusRef = useRef(statusSpec);
+  const activeSkillRef = useRef<ActiveSkill | null>(null);
   const modelRef = useRef(model);
   const effortRef = useRef(effort);
   const profileRef = useRef(profile);
@@ -282,6 +285,19 @@ function App({ boot }: { boot: Boot }) {
 
   const placeholder = useMemo(() => suggest(boot.config.workspace), [boot.config.workspace]);
 
+  function skillPromptParts(): { skillCatalog?: Array<{ id: string; description: string }>; activeSkill?: { id: string; body: string } } {
+    try {
+      const skills = discoverSkills({ workspace: workspaceRef.current, home: homedir() });
+      const active = activeSkillRef.current;
+      return {
+        skillCatalog: skills.map((skill) => ({ id: skill.id, description: skill.description })),
+        activeSkill: active ? { id: active.id, body: active.body } : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
   function rebuildSystem(): void {
     const content = buildSystemPrompt({
       workspace: workspaceRef.current,
@@ -292,6 +308,7 @@ function App({ boot }: { boot: Boot }) {
       extraRoots: rootsRef.current.slice(1),
       append: boot.appendSystem,
       goal: goalRef.current,
+      ...skillPromptParts(),
     });
     const messages = messagesRef.current;
     if (messages[0]?.role === "system") messages[0] = { role: "system", content };
@@ -408,6 +425,12 @@ function App({ boot }: { boot: Boot }) {
     setGoal: (next) => rememberGoal(next),
     setApproval: (next) => rememberApproval(next),
     setStatusline: (next) => rememberStatusline(next),
+    home: homedir(),
+    setActiveSkill: (skill) => {
+      activeSkillRef.current = skill;
+      logRef.current?.updateMeta({ skill: skill?.id ?? "" });
+      rebuildSystem();
+    },
     setModel: (next) => {
       modelRef.current = next;
       setModelState(next);
@@ -479,6 +502,7 @@ function App({ boot }: { boot: Boot }) {
         goal: goalRef.current,
         approval: approvalRef.current,
         statusline: statusRef.current,
+        skill: activeSkillRef.current?.id ?? "",
       });
       logRef.current = log;
       messagesRef.current = [];
@@ -549,6 +573,7 @@ function App({ boot }: { boot: Boot }) {
         goal: goalRef.current,
         approval: approvalRef.current,
         statusline: statusRef.current,
+        skill: activeSkillRef.current?.id ?? "",
         name: name || `${sessionName || "branch"}`,
       });
       for (const message of messagesRef.current) log.message(message);
@@ -629,6 +654,15 @@ function App({ boot }: { boot: Boot }) {
     applySnapshot(loadSession(file), file);
   }
 
+  function restoreSkill(id: string | undefined): void {
+    if (!id) {
+      activeSkillRef.current = null;
+      return;
+    }
+    const found = resolveSkill(discoverSkills({ workspace: workspaceRef.current, home: homedir() }), id);
+    activeSkillRef.current = found && found !== "ambiguous" ? toActiveSkill(found) : null;
+  }
+
   function applySnapshot(snap: SessionSnapshot, file: string): void {
     logRef.current = SessionLog.open(file);
     const convo = snap.messages.filter((message) => message.role !== "system");
@@ -646,6 +680,7 @@ function App({ boot }: { boot: Boot }) {
     if (typeof snap.meta.goal === "string") rememberGoal(snap.meta.goal);
     if (snap.meta.approval === "auto" || snap.meta.approval === "manual") rememberApproval(snap.meta.approval);
     if (typeof snap.meta.statusline === "string") rememberStatusline(snap.meta.statusline);
+    restoreSkill(snap.meta.skill);
     if (snap.meta.profile) {
       profileRef.current = snap.meta.profile;
       setProfileState(snap.meta.profile);
@@ -713,7 +748,7 @@ function App({ boot }: { boot: Boot }) {
     let text = "";
     const result = await createLlmClient({ ...boot.config, model: modelRef.current, effort: effortRef.current }).stream(messages, [], undefined, (delta) => {
       if (delta.text) text += delta.text;
-      if (delta.usage) setUsage((current) => ({ input: current.input + delta.usage!.input, output: current.output + delta.usage!.output }));
+      if (delta.usage) setUsage((current) => addTokenUsage(current, delta.usage!));
     });
     return (result.text || text).trim();
   }
@@ -805,7 +840,7 @@ function App({ boot }: { boot: Boot }) {
             setTodos([...ctxRef.current.todos]);
             setTaskRev((value) => value + 1);
           },
-          onUsage: (part) => setUsage((current) => ({ input: current.input + part.input, output: current.output + part.output })),
+          onUsage: (part) => setUsage((current) => addTokenUsage(current, part)),
           onNotice: (text) => system(text),
           askPermission: (prompt) =>
             new Promise((resolve) => {
@@ -1029,6 +1064,16 @@ function App({ boot }: { boot: Boot }) {
       const step = k.pageUp || k.pageDown ? 8 : k.wheel ? 3 : 1;
       const dir = k.up || k.pageUp || k.wheel === 1 ? -1 : 1;
       setHelpOffset((offset) => Math.max(0, Math.min(max, offset + dir * step)));
+      return;
+    }
+    if (isEffortPickerShortcut(k) && !pickerRef.current && phaseRef.current.type !== "permission" && phaseRef.current.type !== "ask" && phaseRef.current.type !== "plan") {
+      if (help) setHelp(false);
+      if (commandHelpRef.current) {
+        commandHelpRef.current = false;
+        setCommandHelp(false);
+      }
+      closeModelDraft();
+      setPickerBoth({ kind: "effort", state: openEffortPicker(effortRef.current) });
       return;
     }
     if (k.wheel || k.pageUp || k.pageDown) {
@@ -1556,6 +1601,7 @@ function App({ boot }: { boot: Boot }) {
         <SlashMenu
           theme={theme}
           selected={visibleSlash(slashMatches, slashIndex).selected}
+          columns={termCols}
           rows={visibleSlash(slashMatches, slashIndex).rows.map((command) => ({
             name: command.name,
             summary: command.available ? command.summary : `${command.summary} · 不可用`,
@@ -1566,6 +1612,7 @@ function App({ boot }: { boot: Boot }) {
         <SlashMenu
           theme={theme}
           selected={Math.min(fileIndex, fileHits.length - 1)}
+          columns={termCols}
           rows={fileHits.map((file) => ({ name: file, summary: "file" }))}
         />
       ) : null}
@@ -1590,6 +1637,7 @@ function App({ boot }: { boot: Boot }) {
         branch={branch}
         shell={shellEnabled}
         session={sessionName}
+        contextWindow={boot.config.contextWindow}
         hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"}
       />
     </Box>

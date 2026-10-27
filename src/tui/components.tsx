@@ -4,6 +4,7 @@ import { compactDiff } from "../diff.js";
 import { footerModeLabel } from "../permissions.js";
 import { displayName } from "../render/format.js";
 import { DEFAULT_STATUS_FIELDS, formatStatusLeft, type StatusField } from "../statusline.js";
+import { slashRowLines, slashRowTone } from "./complete.js";
 import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
@@ -47,7 +48,7 @@ export function TranscriptView({
       {items.map((item) => (
         <Box key={item.id} flexDirection="column" marginTop={item.type === "user" && item.gap !== false ? 1 : 0}>
           {item.type === "user" ? <UserLine item={item} theme={theme} /> : null}
-          {item.type === "assistant" ? <Text color={theme.text}>{item.text || (item.streaming ? "" : "")}</Text> : null}
+          {item.type === "assistant" ? <AssistantLine text={item.text} theme={theme} /> : null}
           {item.type === "system" ? <Text color={theme.muted}>{item.text}</Text> : null}
           {item.type === "error" ? <Text color={theme.bad}>{item.text}</Text> : null}
           {item.type === "tool" ? <ToolBlock item={item} theme={theme} expanded={expanded} /> : null}
@@ -57,16 +58,26 @@ export function TranscriptView({
   );
 }
 
+/** User lines are bold and use `theme.user`. Assistant lines stay regular `theme.text`. */
+export function transcriptTone(kind: "user" | "assistant"): { bold: boolean; slot: "user" | "text" } {
+  if (kind === "user") return { bold: true, slot: "user" };
+  return { bold: false, slot: "text" };
+}
+
 function UserLine({ item, theme }: { item: Extract<TranscriptItem, { type: "user" }>; theme: Theme }) {
+  const tone = transcriptTone("user");
+  const color = item.queued ? theme.muted : theme[tone.slot];
   return (
     <Box flexDirection="column">
-      <Text color={item.queued ? theme.muted : theme.text}>
-        <Text color={theme.accent}>{item.queued ? "… " : "> "}</Text>
-        {item.text}
-      </Text>
+      <Text bold={!item.queued && tone.bold} color={color}>{`${item.queued ? "… " : "> "}${item.text}`}</Text>
       {item.attached?.length ? <Text color={theme.muted}>{`  attached ${item.attached.join(", ")}`}</Text> : null}
     </Box>
   );
+}
+
+function AssistantLine({ text, theme }: { text: string; theme: Theme }) {
+  const tone = transcriptTone("assistant");
+  return <Text bold={tone.bold} color={theme[tone.slot]}>{text}</Text>;
 }
 
 export function ToolBlock({
@@ -214,6 +225,7 @@ export function StatusBar({
   branch,
   shell,
   session,
+  contextWindow,
 }: {
   theme: Theme;
   mode: PermissionMode;
@@ -228,6 +240,7 @@ export function StatusBar({
   branch?: string;
   shell?: boolean;
   session?: string;
+  contextWindow?: number;
 }) {
   const left = formatStatusLeft(fields ?? DEFAULT_STATUS_FIELDS, {
     hint,
@@ -239,6 +252,7 @@ export function StatusBar({
     branch,
     shell,
     session,
+    contextWindow,
   });
   return (
     <Box marginTop={0} flexShrink={0}>
@@ -305,7 +319,8 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["@path", "attach a file"],
     ["/", "commands"],
     ["/model", "model list · ←→ effort"],
-    ["/effort", "←→ picker · or /effort <level>"],
+    ["/effort", "←→ picker · alt+p · or /effort <level>"],
+    ["alt+p", "open the effort picker"],
     ["pgup / wheel", "earlier messages"],
   ];
   return (
@@ -325,20 +340,28 @@ export function SlashMenu({
   theme,
   rows,
   selected,
+  columns = 80,
 }: {
   theme: Theme;
   rows: Array<{ name: string; summary: string }>;
   selected: number;
+  /** Terminal columns. Rows wrap on spaces so a highlight cannot split a word. */
+  columns?: number;
 }) {
   return (
     <Box flexDirection="column" marginTop={1}>
-      {rows.map((row, index) => (
-        <Text key={row.name} color={index === selected ? theme.accent : theme.muted}>
-          {index === selected ? "❯ " : "  "}
-          /{row.name.padEnd(16)}
-          {row.summary}
-        </Text>
-      ))}
+      {rows.map((row, index) => {
+        const selectedRow = index === selected;
+        const color = theme[slashRowTone(selectedRow)];
+        const lines = slashRowLines(selectedRow, row.name, row.summary, columns);
+        return (
+          <Box key={`${row.name}:${index}`} flexDirection="column">
+            {lines.map((line, lineIndex) => (
+              <Text key={lineIndex} color={color} wrap="truncate-end">{line}</Text>
+            ))}
+          </Box>
+        );
+      })}
     </Box>
   );
 }

@@ -12,6 +12,9 @@ export interface PromptParts {
   extraRoots?: string[];
   append?: string;
   goal?: string;
+  /** Name and description only. The body loads when a skill is active. */
+  skillCatalog?: Array<{ id: string; description: string }>;
+  activeSkill?: { id: string; body: string };
 }
 
 export function buildSystemPrompt(parts: PromptParts): string {
@@ -60,6 +63,13 @@ export function buildSystemPrompt(parts: PromptParts): string {
   const memory = loadMemory(parts.workspace);
   if (memory) {
     lines.push("", "## Project memory (AGENT.md)", memory.trim());
+  }
+  if (parts.skillCatalog?.length) {
+    const rows = parts.skillCatalog.slice(0, 40).map((skill) => `- ${skill.id}${skill.description ? `: ${skill.description}` : ""}`);
+    lines.push("", "## Skills", "Invoke one with /skill <id>. Follow a skill when the user asks for it or the description matches.", ...rows);
+  }
+  if (parts.activeSkill?.body.trim()) {
+    lines.push("", `## Active skill: ${parts.activeSkill.id}`, parts.activeSkill.body.trim());
   }
   if (parts.append?.trim()) {
     lines.push("", "## Additional instructions", parts.append.trim());

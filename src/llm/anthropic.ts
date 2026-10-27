@@ -1,5 +1,5 @@
 import { anthropicOutputConfig } from "../effort.js";
-import type { ChatMessage, LlmDelta, LlmResult, ToolCall, ToolDef } from "../types.js";
+import type { ChatMessage, LlmDelta, LlmResult, TokenUsage, ToolCall, ToolDef } from "../types.js";
 import type { ApiClientOptions } from "./protocol.js";
 import { messagesEndpoint } from "./protocol.js";
 import { consumeSse } from "./sse.js";
@@ -9,7 +9,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 interface Acc {
   text: string;
   tools: Array<{ id: string; name: string; arguments: string }>;
-  usage: { input: number; output: number };
+  usage: TokenUsage;
   finish: string | null;
 }
 
@@ -271,7 +271,7 @@ function absorbBlocks(acc: Acc, blocks: LiveBlock[]): void {
 }
 
 function finishAcc(acc: Acc, onDelta: (delta: LlmDelta) => void): LlmResult {
-  if (acc.usage.input || acc.usage.output) onDelta({ usage: acc.usage });
+  if (acc.usage.input || acc.usage.output || acc.usage.cacheRead || acc.usage.cacheWrite) onDelta({ usage: acc.usage });
   const toolCalls: ToolCall[] = acc.tools
     .filter((tool) => tool.name)
     .map((tool, index) => ({
@@ -286,6 +286,8 @@ function takeUsage(acc: Acc, usage: Record<string, unknown> | undefined): void {
   if (!usage) return;
   if (typeof usage.input_tokens === "number") acc.usage.input = usage.input_tokens;
   if (typeof usage.output_tokens === "number") acc.usage.output = usage.output_tokens;
+  if (typeof usage.cache_read_input_tokens === "number") acc.usage.cacheRead = usage.cache_read_input_tokens;
+  if (typeof usage.cache_creation_input_tokens === "number") acc.usage.cacheWrite = usage.cache_creation_input_tokens;
 }
 
 function indexOf(value: unknown): number {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { caretVisible, promptSegments } from "../src/tui/caret.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "../src/tui/editor.js";
-import { emptyDecodeState, pushConsoleChunk } from "../src/tui/keys.js";
+import { emptyDecodeState, isEffortPickerShortcut, pushConsoleChunk } from "../src/tui/keys.js";
 import { displayWidth } from "../src/tui/text.js";
 
 function key(partial: Partial<KeyIn>): KeyIn {
@@ -209,6 +209,23 @@ test("tab is recognized from a raw byte, kitty, and modifyOtherKeys", () => {
   assert.equal(other.keys[0]?.tab, true);
   assert.equal(reduceEditor(emptyEditor(), key({ tab: true })).effect, "complete");
   assert.equal(reduceEditor({ ...emptyEditor(), text: "/he", cursor: 3 }, key({ tab: true })).effect, "complete");
+});
+
+test("alt+p opens the effort picker and does not insert p", () => {
+  const plain = pushConsoleChunk(emptyDecodeState(), "\x1bp").keys[0];
+  assert.equal(isEffortPickerShortcut(plain ?? {}), true);
+  assert.equal(plain?.meta, true);
+  assert.equal(plain?.input, "p");
+  const kitty = pushConsoleChunk(emptyDecodeState(), "\x1b[112;3u").keys[0];
+  assert.equal(isEffortPickerShortcut(kitty ?? {}), true);
+  const other = pushConsoleChunk(emptyDecodeState(), "\x1b[27;3;112~").keys[0];
+  assert.equal(other?.meta, true);
+  assert.equal(isEffortPickerShortcut(other ?? {}), true);
+  const typed = reduceEditor({ ...emptyEditor(), text: "draft", cursor: 5 }, plain ?? key({ meta: true, input: "p" }));
+  assert.equal(typed.state.text, "draft");
+  assert.equal(typed.effect, undefined);
+  assert.equal(isEffortPickerShortcut(key({ ctrl: true, input: "p" })), false);
+  assert.equal(isEffortPickerShortcut(key({ input: "p" })), false);
 });
 
 test("the mouse wheel scrolls and does not insert text", () => {

@@ -172,7 +172,7 @@ test("/resume with no id opens the picker path, and /resume <id> passes the id",
 
 test("unavailable samples are one line and do not append another help dump", async () => {
   const session = host();
-  const samples = ["/login", "/mcp", "/ide", "/plugin", "/hooks", "/voice", "/desktop", "/logout", "/upgrade", "/chrome"];
+  const samples = ["/login", "/mcp", "/ide", "/hooks", "/voice", "/desktop", "/logout", "/upgrade", "/chrome"];
   for (const sample of samples) {
     const before = session.lines.length;
     await runSlashCommand(sample, session);
@@ -232,6 +232,13 @@ test("/goal, /auto, and /statusline update the host and stay in help", async () 
   assert.match(session.statusline ?? "", /goal/);
   await runSlashCommand("/statusline reset", session);
   assert.match(session.statusline ?? "", /hint/);
+  await runSlashCommand("/statusline 加当前使用模型，当前effort，token使用量，上下文窗口占用百分比，上下文窗口有多少，缓存命中率", session);
+  assert.match(session.statusline ?? "", /model/);
+  assert.match(session.statusline ?? "", /effort/);
+  assert.match(session.statusline ?? "", /tokens/);
+  assert.match(session.statusline ?? "", /context/);
+  assert.match(session.statusline ?? "", /contextSize/);
+  assert.match(session.statusline ?? "", /cache/);
   await runSlashCommand("/statusline model tokens", session);
   const kept = session.statusline;
   await runSlashCommand("/config statusline=status", session);

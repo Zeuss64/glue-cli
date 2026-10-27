@@ -4,7 +4,7 @@ import { bashAllowRule, decidePermission, type PermissionDecision } from "../per
 import { displayName, toolTarget } from "../render/format.js";
 import { executeTool, type ToolContext, type ToolOutcome } from "../tools/execute.js";
 import type { LlmClient } from "../llm/client.js";
-import type { ChatMessage, DiffLine, PermissionMode, PermissionRules, ToolCall, ToolDef } from "../types.js";
+import type { ChatMessage, DiffLine, PermissionMode, PermissionRules, TokenUsage, ToolCall, ToolDef } from "../types.js";
 
 export interface PermissionPrompt {
   tool: string;
@@ -34,7 +34,7 @@ export interface AgentHooks {
     detail?: string;
     denied?: boolean;
   }) => void;
-  onUsage?: (usage: { input: number; output: number }) => void;
+  onUsage?: (usage: TokenUsage) => void;
   onNotice?: (text: string) => void;
   askPermission: (prompt: PermissionPrompt) => Promise<PermissionChoice>;
   askUser: (question: string, options: string[]) => Promise<string>;

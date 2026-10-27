@@ -138,6 +138,13 @@ export function blankKey(): KeyIn {
   };
 }
 
+/** Alt+P opens the effort picker. Shift is ignored. Ctrl+Alt+P is not this shortcut. */
+export function isEffortPickerShortcut(key: { meta?: boolean; ctrl?: boolean; input?: string }): boolean {
+  if (!key.meta || key.ctrl) return false;
+  const input = key.input ?? "";
+  return input === "p" || input === "P";
+}
+
 function push(keys: KeyIn[], key: KeyIn): void {
   if (key.wheel || key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
     keys.push(key);
@@ -311,6 +318,7 @@ function modifyOtherKeys(key: KeyIn, numbers: number[]): KeyIn {
     key.input = "";
     return key;
   }
+  if (code >= 32) key.input = String.fromCodePoint(code);
   return key;
 }
 

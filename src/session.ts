@@ -16,6 +16,8 @@ export interface SessionMeta {
   goal?: string;
   approval?: string;
   statusline?: string;
+  /** Active skill id. Empty means none. */
+  skill?: string;
 }
 
 export interface SessionSnapshot {
@@ -44,6 +46,7 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     ...(partial.goal !== undefined ? { goal: partial.goal } : {}),
     ...(partial.approval ? { approval: partial.approval } : {}),
     ...(partial.statusline !== undefined ? { statusline: partial.statusline } : {}),
+    ...(partial.skill !== undefined ? { skill: partial.skill } : {}),
   };
   const file = path.join(sessionsDir(workspace), `${meta.id}.jsonl`);
   mkdirSync(path.dirname(file), { recursive: true });

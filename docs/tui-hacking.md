@@ -70,11 +70,15 @@ Residual limits: some conhost builds ignore a hidden cursor and keep the candida
 
 ## Slash commands, `/goal`, `/auto`, `/statusline`
 
-`/help` opens a bounded panel (`CommandHelp`). It does not append another copy of the catalog to the transcript, so unavailable samples cannot stack a second "Glue Cli commands" dump. `/login`, `/mcp`, `/ide`, `/plugin`, `/hooks`, `/voice`, `/desktop`, and the other unavailable names push one line and close that panel.
+`/help` opens a bounded panel (`CommandHelp`). It does not append another copy of the catalog to the transcript, so unavailable samples cannot stack a second "Glue Cli commands" dump. `/login`, `/mcp`, `/ide`, `/hooks`, `/voice`, `/desktop`, and the other unavailable names push one line and close that panel. `/skill` lists skills and `/skill <name>` loads one. `/plugin load <dir>` and `/plugin install <owner/repo>` register a skill library.
 
 Tab completion is prefix-only (`filterCommands` / `cycleSlash`). One match accepts the name. Several matches cycle and the slash menu highlights the same row. Plain Tab is `\t`. Kitty `CSI 9 u` and modifyOtherKeys `CSI 27 ; modifier ; 9 ~` are Tab as well. Shift+Tab is still the permission cycle.
 
-`/goal` stores a sentence on the session and in `.agent/ui.json`. The system prompt includes it. `/goal clear` removes it. `/auto on` allows low-risk edits and local commands; `rm -rf`, paths outside the workspace, network installs, and privilege escalation still ask. The footer shows `manual mode on` or `auto mode on`. `/statusline` chooses the fields under the input. The default is shortcuts, effort, and tokens. `/statusline 设计` adds model and goal. The mode badge stays on the right.
+`/goal` stores a sentence on the session and in `.agent/ui.json`. The system prompt includes it. `/goal clear` removes it. `/auto on` allows low-risk edits and local commands; `rm -rf`, paths outside the workspace, network installs, and privilege escalation still ask. The footer shows `manual mode on` or `auto mode on`. `/statusline` chooses the fields under the input. The default is shortcuts, effort, and tokens. `/statusline 设计` adds model and goal. A free-text request such as `/statusline 加模型、effort、用量、上下文占用百分比、窗口大小和缓存命中率` selects those fields and persists the spec. Context percent and window size render when the window is known. Cache hit renders only after the API reports cache tokens. The mode badge stays on the right.
+
+User lines in the transcript are bold and use `theme.user`. Assistant lines stay regular `theme.text`.
+
+The selected slash row uses one color for the command and the full description (`slashRowTone`). Lines wrap on spaces (`slashRowLines`) so a narrow terminal does not cut a word such as `statusline` and change color in the middle.
 
 ## `/model`
 
@@ -86,7 +90,7 @@ Order is `modelChoices`: the current model, then `models` from user or project c
 
 ## `/effort`
 
-Levels are `low`, `medium`, `high`, `xhigh`, `max`, and `auto` (`EFFORT_PICKER_LEVELS` in `src/tui/effort-picker.ts`; `EFFORT_CYCLE` in `src/effort.ts` is the model-picker order and still starts at `auto`). Bare `/effort` (Enter) opens a left/right picker when the host provides `openEffortPicker`. Left and right move the highlight and stop at the ends. Enter sets the level. Esc or Ctrl+C cancels. `/effort <level>` still sets it directly and does not open the picker. `/effort status` prints the level. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
+Levels are `low`, `medium`, `high`, `xhigh`, `max`, and `auto` (`EFFORT_PICKER_LEVELS` in `src/tui/effort-picker.ts`; `EFFORT_CYCLE` in `src/effort.ts` is the model-picker order and still starts at `auto`). Bare `/effort` (Enter) opens a left/right picker when the host provides `openEffortPicker`. Alt+P (`isEffortPickerShortcut`) opens the same picker and leaves the draft in the prompt. Left and right move the highlight and stop at the ends. Enter sets the level. Esc or Ctrl+C cancels. `/effort <level>` still sets it directly and does not open the picker. `/effort status` prints the level. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
 
 The status line shows `effort <level>`. The same value is stored on the session meta and read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`.
 
