@@ -10,6 +10,7 @@ import {
   anthropicOutputConfig,
   EFFORT_CYCLE,
   effortBlurb,
+  effortColor,
   effortStatusLabel,
   parseEffortCommand,
 } from "../src/effort.js";
@@ -17,7 +18,8 @@ import type { LlmClient } from "../src/llm/client.js";
 import { buildSystemPrompt } from "../src/prompt.js";
 import { Sandbox } from "../src/sandbox.js";
 import { executeTool, type ToolContext } from "../src/tools/execute.js";
-import { effortSliderTrack } from "../src/tui/effort-picker.js";
+import { effortKnobAligned, EFFORT_PICKER_LEVELS } from "../src/tui/effort-picker.js";
+import { pickerSurface } from "../src/tui/keys.js";
 import type { ToolDef } from "../src/types.js";
 
 test("ultracode maps onto max and does not replace the named levels", () => {
@@ -30,10 +32,11 @@ test("ultracode maps onto max and does not replace the named levels", () => {
   assert.deepEqual(anthropicOutputConfig("low"), { effort: "low" });
   assert.deepEqual([...EFFORT_CYCLE], ["auto", "low", "medium", "high", "xhigh", "max"]);
   assert.equal(effortStatusLabel("high", false), "high");
-  assert.equal(effortStatusLabel("max", true), "ultracode · max + subagents");
-  assert.match(effortBlurb("ultracode"), /max thinking \+ subagent dispatch/);
+  assert.equal(effortStatusLabel("high", true), "high · ultracode");
+  assert.match(effortBlurb("ultracode"), /dynamic workflows on every task/);
   assert.equal(parseEffortCommand("").kind, "picker");
-  assert.deepEqual(parseEffortCommand("ultracode"), { kind: "set", effort: "max", ultracode: true });
+  assert.deepEqual(parseEffortCommand("ultracode"), { kind: "ultracode-on" });
+  assert.equal(pickerSurface("alt-p"), "model-effort");
   assert.deepEqual(parseEffortCommand("ULTRACODE off"), { kind: "ultracode-off" });
   assert.deepEqual(parseEffortCommand("high"), { kind: "set", effort: "high", ultracode: false });
   assert.equal(parseEffortCommand("nope").kind, "invalid");
@@ -49,9 +52,16 @@ test("ultracode maps onto max and does not replace the named levels", () => {
   assert.match(prompt, /UltraCode is on/);
 });
 
-test("the effort slider puts a knob on the highlighted stop", () => {
-  assert.equal(effortSliderTrack(3, 1), "○────●────○");
-  assert.equal(effortSliderTrack(1, 0), "●");
+test("max effort color shimmers and the knob stays on the highlighted stop", () => {
+  assert.notEqual(effortColor("max", 0), effortColor("max", 1));
+  assert.equal(effortColor("low", 0), effortColor("low", 4));
+  assert.notEqual(effortColor("low", 0), effortColor("medium", 0));
+  assert.notEqual(effortColor("medium", 0), effortColor("high", 0));
+  assert.notEqual(effortColor("high", 0), effortColor("xhigh", 0));
+  assert.notEqual(effortColor("xhigh", 0), effortColor("max", 0));
+  for (let index = 0; index < EFFORT_PICKER_LEVELS.length; index += 1) {
+    assert.equal(effortKnobAligned([...EFFORT_PICKER_LEVELS], index), true);
+  }
 });
 
 test("spawn_subagent is offered only while ultracode is on and cannot nest", async () => {

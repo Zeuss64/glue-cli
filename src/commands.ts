@@ -70,7 +70,7 @@ export interface CommandHost {
   setEffort?(level: EffortLevel): void;
   /** UltraCode: max thinking plus subagent dispatch. Independent of the named levels. */
   ultracode?: boolean;
-  /** On pins effort to max and enables spawn_subagent. Off leaves the current level. */
+  /** Toggle subagent dispatch. Does not change the effort level. */
   setUltracode?(on: boolean): void;
   setMode(mode: PermissionMode): void;
   setProfile(profile: string): void;
@@ -110,7 +110,7 @@ const CATALOG: SlashCommand[] = [
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
   { name: "model", summary: "Open the model list, or /model <id> to set one", available: true },
-  { name: "effort", summary: "Effort slider (alt+p). Levels, or ultracode for max + subagents", available: true },
+  { name: "effort", summary: "Effort overlay. Alt+P switches model and effort", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -468,14 +468,9 @@ function applyConfig(args: string, host: CommandHost): void {
     if (parsed.kind === "ultracode-off") {
       host.setUltracode?.(false);
       host.push(`UltraCode off. Effort stays ${host.effort ?? "auto"}.`);
-    } else if (parsed.kind === "set" && parsed.ultracode) {
-      if (host.setUltracode) host.setUltracode(true);
-      else if (host.setEffort) host.setEffort("max");
-      else {
-        host.push(`Usage: /config effort=${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
-        return;
-      }
-      host.push(effortSetMessage(parsed));
+    } else if (parsed.kind === "ultracode-on") {
+      host.setUltracode?.(true);
+      host.push(`UltraCode on. Dynamic workflows and subagent dispatch. Effort stays ${host.effort ?? "auto"}.`);
     } else if (parsed.kind === "set" && host.setEffort) {
       host.setEffort(parsed.effort);
     } else {
@@ -702,22 +697,23 @@ function applyEffort(args: string, host: CommandHost): void {
     host.push(`Effort: ${effortStatusLabel(host.effort, host.ultracode)}`);
     return;
   }
+  if (parsed.kind === "ultracode-on") {
+    host.setUltracode?.(true);
+    host.push(`UltraCode on. Dynamic workflows and subagent dispatch. Effort stays ${host.effort ?? "auto"}.`);
+    return;
+  }
   if (parsed.kind === "ultracode-off") {
     host.setUltracode?.(false);
     host.push(`UltraCode off. Effort stays ${host.effort ?? "auto"}.`);
     return;
   }
   if (parsed.kind === "set") {
-    if (parsed.ultracode) {
-      if (host.setUltracode) host.setUltracode(true);
-      else host.setEffort?.("max");
-    } else if (host.setEffort) {
-      host.setEffort(parsed.effort);
-    } else {
+    if (!host.setEffort) {
       host.push(`Usage: /effort ${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
       return;
     }
-    host.push(effortSetMessage(parsed));
+    host.setEffort(parsed.effort);
+    host.push(effortSetMessage({ effort: parsed.effort, ultracode: false }));
     return;
   }
   host.push(`Usage: /effort ${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");

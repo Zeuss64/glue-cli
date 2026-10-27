@@ -138,7 +138,15 @@ export function blankKey(): KeyIn {
   };
 }
 
-/** Alt+P opens the effort picker. Shift is ignored. Ctrl+Alt+P is not this shortcut. */
+/**
+ * Alt+P and `/model` share the model list plus the effort row.
+ * Bare `/effort` opens the Faster/Smarter overlay instead.
+ */
+export function pickerSurface(source: "alt-p" | "model" | "effort"): "model-effort" | "effort" {
+  return source === "effort" ? "effort" : "model-effort";
+}
+
+/** Alt+P opens the model and effort surface. Shift is ignored. Ctrl+Alt+P is not this shortcut. */
 export function isEffortPickerShortcut(key: { meta?: boolean; ctrl?: boolean; input?: string }): boolean {
   if (!key.meta || key.ctrl) return false;
   const input = key.input ?? "";

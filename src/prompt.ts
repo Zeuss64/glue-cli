@@ -54,7 +54,7 @@ export function buildSystemPrompt(parts: PromptParts): string {
       ? `Current goal: ${parts.goal.trim()}\nKeep working toward this goal until it is done or the user changes it with /goal. Do not drop it for an unrelated task.`
       : "",
     parts.ultracode
-      ? "UltraCode is on. Think at max. You may call spawn_subagent to dispatch a subagent for an independent subtask such as a search, a review, or a bounded change. A subagent cannot dispatch another subagent. Wait for its report, then continue."
+      ? "UltraCode is on: dynamic workflows for substantive tasks. You may call spawn_subagent to dispatch a subagent for an independent subtask such as a search, a review, or a bounded change. A subagent cannot dispatch another subagent. Wait for its report, then continue. This toggle does not change the effort level."
       : "",
     parts.outputStyle === "concise"
       ? "Output style: concise. Short paragraphs, no preamble, one sentence after a successful edit."

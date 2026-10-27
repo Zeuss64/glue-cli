@@ -17,13 +17,17 @@ import { displayWidth } from "./text.js";
  * except the console cursor.
  */
 
-/** Built-in footer, plus one row per visible custom status line. Blank lines add nothing. */
+/**
+ * Rows under the input. The built-in footer is two lines (metrics, then mode).
+ * A visible custom status line replaces the metrics line and keeps the mode line,
+ * so each non-blank custom line adds one row on top of that single mode row.
+ */
 export function statusAreaRows(customLines: readonly string[]): number {
   let extra = 0;
   for (const line of customLines) {
     if (line.trim()) extra += 1;
   }
-  return 1 + extra;
+  return (extra > 0 ? 1 : 2) + extra;
 }
 
 export function imeAnchor(opts: {
@@ -31,7 +35,7 @@ export function imeAnchor(opts: {
   frameCols: number;
   text: string;
   cursor: number;
-  /** Built-in footer plus custom status-line rows under the input. Default 1. */
+  /** Built-in footer plus custom status-line rows under the input. Default 2. */
   statusRows?: number;
 }): { row: number; column: number } {
   const rows = Math.max(1, opts.frameRows);
@@ -43,7 +47,7 @@ export function imeAnchor(opts: {
   const lineIndex = Math.max(0, wrapped.length - 1);
   const lineWidth = displayWidth(wrapped[lineIndex] ?? "");
   const linesBelowCaret = wrapped.length - 1 - lineIndex;
-  const statusRows = Math.max(1, Math.floor(opts.statusRows ?? 1));
+  const statusRows = Math.max(1, Math.floor(opts.statusRows ?? 2));
   // Status area, then the input's bottom border, then the caret line.
   const row = clamp(rows - statusRows - 1 - linesBelowCaret, 1, rows);
   // Left border + padding + the width already on this visual line + the caret cell.

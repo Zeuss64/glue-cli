@@ -40,8 +40,46 @@ export function applyEffortChoice(choice: EffortChoice): EffortSelection {
 }
 
 export function effortStatusLabel(effort: EffortLevel | undefined, ultracode?: boolean): string {
-  if (ultracode) return "ultracode · max + subagents";
-  return effort ?? "auto";
+  const level = effort ?? "auto";
+  return ultracode ? `${level} · ultracode` : level;
+}
+
+const EFFORT_COLOR: Record<string, string> = {
+  low: "blue",
+  medium: "cyan",
+  high: "yellow",
+  xhigh: "magenta",
+  auto: "white",
+};
+
+/** Bright steps for the `max` shimmer. Other levels do not use this list. */
+export const MAX_EFFORT_SHIMMER = ["#fde047", "#fb923c", "#f472b6", "#e879f9", "#22d3ee", "#4ade80"] as const;
+
+/** Stable color per level. `max` advances through the shimmer on each tick. */
+export function effortColor(level: string | undefined, tick = 0): string {
+  if (level === "max") {
+    const index = ((Math.floor(tick) % MAX_EFFORT_SHIMMER.length) + MAX_EFFORT_SHIMMER.length) % MAX_EFFORT_SHIMMER.length;
+    return MAX_EFFORT_SHIMMER[index] ?? "green";
+  }
+  return EFFORT_COLOR[level ?? "auto"] ?? "white";
+}
+
+/** Public label in the model picker, for example `xHigh`. */
+export function effortTitle(level: string | undefined): string {
+  switch (level) {
+    case "low":
+      return "Low";
+    case "medium":
+      return "Medium";
+    case "high":
+      return "High";
+    case "xhigh":
+      return "xHigh";
+    case "max":
+      return "Max";
+    default:
+      return "Auto";
+  }
 }
 
 export function effortSetMessage(selection: EffortSelection): string {
@@ -64,7 +102,7 @@ export function effortBlurb(choice: string | undefined): string {
     case "max":
       return "Top-tier thinking. No token cap.";
     case "ultracode":
-      return "UltraCode · max thinking + subagent dispatch.";
+      return "Ultracode: dynamic workflows on every task.";
     case "auto":
       return "Model default. Effort is omitted from the request.";
     default:
@@ -76,6 +114,7 @@ export type EffortCommand =
   | { kind: "picker" }
   | { kind: "status" }
   | { kind: "set"; effort: EffortLevel; ultracode: boolean }
+  | { kind: "ultracode-on" }
   | { kind: "ultracode-off" }
   | { kind: "invalid" };
 
@@ -84,7 +123,7 @@ export function parseEffortCommand(args: string): EffortCommand {
   const text = args.trim().toLowerCase().replace(/\s+/g, " ");
   if (!text) return { kind: "picker" };
   if (text === "status") return { kind: "status" };
-  if (text === "ultracode" || text === "ultracode on") return { kind: "set", effort: "max", ultracode: true };
+  if (text === "ultracode" || text === "ultracode on") return { kind: "ultracode-on" };
   if (text === "ultracode off") return { kind: "ultracode-off" };
   const level = normalizeEffort(text);
   if (!level) return { kind: "invalid" };

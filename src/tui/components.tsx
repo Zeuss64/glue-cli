@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { compactDiff } from "../diff.js";
-import { footerModeLabel } from "../permissions.js";
 import { displayName } from "../render/format.js";
-import { DEFAULT_STATUS_FIELDS, formatStatusLeft, type StatusField } from "../statusline.js";
 import { slashRowLines, slashRowTone } from "./complete.js";
 import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
-import { effortBlurb } from "../effort.js";
-import { effortSliderTrack } from "./effort-picker.js";
+import { effortBlurb, effortColor, effortTitle } from "../effort.js";
+import { effortTrackLines } from "./effort-picker.js";
+import { footerFields } from "./footer.js";
 import type { Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
@@ -233,8 +232,8 @@ export function StatusBar({
   usage,
   hint,
   effort,
+  ultracode = false,
   approval = "manual",
-  fields,
   model,
   goal,
   cwd,
@@ -249,8 +248,8 @@ export function StatusBar({
   usage: TokenUsage;
   hint?: string;
   effort?: string;
+  ultracode?: boolean;
   approval?: ApprovalMode;
-  fields?: readonly StatusField[];
   model?: string;
   goal?: string;
   cwd?: string;
@@ -261,25 +260,56 @@ export function StatusBar({
   /** Custom status line is showing; keep the built-in footer badges only. */
   compact?: boolean;
 }) {
-  const left = compact
-    ? ""
-    : formatStatusLeft(fields ?? DEFAULT_STATUS_FIELDS, {
-        hint,
-        effort,
-        usage,
-        model,
-        goal,
-        cwd,
-        branch,
-        shell,
-        session,
-        contextWindow,
-      });
+  const bar = footerFields({
+    cwd,
+    model,
+    effort,
+    ultracode,
+    usage,
+    contextWindow,
+    mode,
+    approval,
+  });
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (effort !== "max") return;
+    const timer = setInterval(() => setTick((value) => value + 1), 160);
+    return () => clearInterval(timer);
+  }, [effort]);
+  const effortTone = effortColor(bar.effort, tick);
+  if (compact) {
+    return (
+      <Box marginTop={0} flexShrink={0}>
+        <Text color={theme.mode[mode]}>{bar.mode}</Text>
+        <Box flexGrow={1} />
+        <Text color={effortTone}>{bar.hint}</Text>
+      </Box>
+    );
+  }
   return (
-    <Box marginTop={0} flexShrink={0}>
-      <Text color={theme.muted}>{left}</Text>
-      <Box flexGrow={1} />
-      <Text color={theme.mode[mode]}>{footerModeLabel(mode, approval)}</Text>
+    <Box flexDirection="column" marginTop={0} flexShrink={0}>
+      <Box>
+        {bar.path ? <Text color={theme.accent}>{bar.path}</Text> : null}
+        {branch ? <Text color={theme.muted}>{` ${branch}`}</Text> : null}
+        {bar.path || branch ? <Text> </Text> : null}
+        <Text color={theme.muted}>[</Text>
+        <Text color={theme.accent}>{bar.model}</Text>
+        <Text color={theme.muted}>{` (${bar.context})] `}</Text>
+        <Text color={theme.muted}>effort:</Text>
+        <Text color={effortTone}>{bar.effort}</Text>
+        <Text color={theme.ok}>{` tokens:${bar.tokens}`}</Text>
+        <Text color={theme.user}>{` ctx:${bar.ctx}`}</Text>
+        <Text color={theme.muted}>{` cache:${bar.cache}`}</Text>
+        <Box flexGrow={1} />
+        <Text color={effortTone}>{bar.hint}</Text>
+      </Box>
+      <Box>
+        <Text color={approval === "auto" ? "yellow" : theme.mode[mode]}>{bar.mode}</Text>
+        {hint ? <Text color={theme.muted}>{` · ${hint}`}</Text> : null}
+        {shell ? <Text color={theme.muted}> · shell on</Text> : null}
+        {session ? <Text color={theme.muted}>{` · ${session}`}</Text> : null}
+        {goal ? <Text color={theme.muted}>{` · ${goal}`}</Text> : null}
+      </Box>
     </Box>
   );
 }
@@ -360,9 +390,9 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["# note", "append to AGENT.md"],
     ["@path", "attach a file"],
     ["/", "commands"],
-    ["/model", "model list · ←→ effort"],
-    ["/effort", "slider · alt+p · ultracode is max + subagents"],
-    ["alt+p", "open the effort picker"],
+    ["/model", "model list · ←→ effort · alt+p"],
+    ["/effort", "Faster/Smarter track · tab toggles UltraCode"],
+    ["alt+p", "model list and effort row"],
     ["pgup / wheel", "earlier messages"],
   ];
   return (
@@ -487,9 +517,16 @@ export function ModelPicker({
   position: string;
   effort: string;
 }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (effort !== "max") return;
+    const timer = setInterval(() => setTick((value) => value + 1), 160);
+    return () => clearInterval(timer);
+  }, [effort]);
   return (
     <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
-      <Text bold color={theme.text}>Model</Text>
+      <Text bold color={theme.text}>Select model</Text>
+      <Text color={theme.muted}>Switch the model for this session. The list is the configured ids.</Text>
       <Text color={theme.muted}>{position}</Text>
       {rows.map((row, index) => (
         <Text key={`${row}:${index}`} color={index === selected ? theme.accent : theme.text}>
@@ -497,7 +534,11 @@ export function ModelPicker({
           {row}
         </Text>
       ))}
-      <Text color={theme.muted}>{`↑↓ model · ←→ effort ${effort} · enter select · esc cancel`}</Text>
+      <Text>
+        <Text color={effortColor(effort, tick)}>{`◎ ${effortTitle(effort)} effort`}</Text>
+        <Text color={theme.muted}> ←/→ to adjust</Text>
+      </Text>
+      <Text color={theme.muted}>Enter to select · Esc to cancel</Text>
     </Box>
   );
 }
@@ -506,33 +547,60 @@ export function EffortPicker({
   theme,
   levels,
   selected,
+  ultracode = false,
 }: {
   theme: Theme;
   levels: string[];
   selected: number;
+  ultracode?: boolean;
 }) {
-  const choice = levels[selected] ?? levels[0];
-  const blurb = effortBlurb(choice);
-  const caution = choice === "max" || choice === "ultracode";
+  const choice = levels[selected] ?? levels[0] ?? "high";
+  const lines = effortTrackLines(levels, selected);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (choice !== "max") return;
+    const timer = setInterval(() => setTick((value) => value + 1), 160);
+    return () => clearInterval(timer);
+  }, [choice]);
+  const tone = effortColor(choice, tick);
+  const caution = choice === "max" || ultracode;
   return (
-    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+    <Box flexDirection="column" flexShrink={0} marginTop={1}>
       <Text bold color={theme.text}>Effort</Text>
       <Box>
-        <Text color={theme.muted}>Faster</Text>
-        <Box flexGrow={1} />
-        <Text color={theme.muted}>Smarter</Text>
-      </Box>
-      <Text>
-        {levels.map((level, index) => (
-          <Text key={level} color={index === selected ? theme.accent : theme.muted} bold={index === selected}>
-            {index === selected ? `[${level}]` : ` ${level} `}
+        <Box flexDirection="column" flexGrow={1}>
+          <Box>
+            <Text color={theme.muted}>Faster</Text>
+            <Box flexGrow={1} />
+            <Text color={theme.muted}>Smarter</Text>
+          </Box>
+          <Text>
+            {levels.map((level, index) => {
+              const width = Math.max(level.length, 3);
+              const pad = Math.max(0, width - level.length);
+              const left = Math.floor(pad / 2);
+              const label = `${" ".repeat(left)}${level}${" ".repeat(pad - left)}`;
+              return (
+                <Text key={level} color={index === selected ? tone : theme.muted} bold={index === selected}>
+                  {index === 0 ? label : `  ${label}`}
+                </Text>
+              );
+            })}
           </Text>
-        ))}
-      </Text>
-      <Text color={theme.accent}>{effortSliderTrack(levels.length, selected)}</Text>
-      {blurb ? <Text color={theme.text}>{blurb}</Text> : null}
-      {caution ? <Text color={theme.muted}>May use many tokens. Save it for the hardest tasks.</Text> : null}
-      <Text color={theme.muted}>←→ move · tab UltraCode · enter set · esc cancel</Text>
+          <Text color={tone}>{lines.track}</Text>
+          <Text color={ultracode ? "#c084fc" : theme.text}>
+            {ultracode ? "Ultracode: dynamic workflows on every task" : effortBlurb(choice)}
+          </Text>
+        </Box>
+        <Box flexDirection="column" marginLeft={2}>
+          <Text color="#c084fc">{ultracode ? "Ultracode on" : "Ultracode off"}</Text>
+          <Text color={theme.muted}>Tab to toggle</Text>
+        </Box>
+      </Box>
+      {caution ? (
+        <Text color={theme.muted}>May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.</Text>
+      ) : null}
+      <Text color={theme.muted}>←/→ to adjust · Enter to confirm · Esc to cancel</Text>
     </Box>
   );
 }

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, render, Text, useApp, useStdout } from "ink";
 import { runAgentTurn, type AgentHooks, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
-import { applyEffortChoice, effortSetMessage, effortStatusLabel, normalizeEffort, type EffortLevel } from "../effort.js";
+import { effortSetMessage, normalizeEffort, type EffortLevel } from "../effort.js";
 import {
   filterCommands,
   gitText,
@@ -59,7 +59,7 @@ import { prevGrapheme } from "./text.js";
 import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
 import { cycleSlash, slashTabIndex, type SlashCycle } from "./complete.js";
 import { imeAnchor, statusAreaRows } from "./ime.js";
-import { isEffortPickerShortcut, MOUSE_TRACKING_ON } from "./keys.js";
+import { isEffortPickerShortcut, MOUSE_TRACKING_ON, pickerSurface } from "./keys.js";
 import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
   ChoiceDialog,
@@ -426,7 +426,7 @@ function App({ boot }: { boot: Boot }) {
         sessionId: logRef.current?.meta.id ?? "",
         sessionName: sessionName,
         model: modelRef.current,
-        effort: effortStatusLabel(effortRef.current, ultracodeRef.current),
+        effort: effortRef.current,
         usage: usageRef.current,
         contextWindow: boot.config.contextWindow,
       },
@@ -522,8 +522,8 @@ function App({ boot }: { boot: Boot }) {
       commitEditor(emptyEditor(editorRef.current.vim));
       setPickerBoth({ kind: "effort", state: openEffortPicker(effortRef.current, ultracodeRef.current) });
     },
-    setEffort: (level) => applySelection({ effort: level, ultracode: false }),
-    setUltracode: (on) => applySelection(on ? { effort: "max", ultracode: true } : { effort: effortRef.current, ultracode: false }),
+    setEffort: (level) => applySelection({ effort: level, ultracode: ultracodeRef.current }),
+    setUltracode: (on) => applySelection({ effort: effortRef.current, ultracode: on }),
     setMode: (next) => {
       modeRef.current = next;
       setModeState(next);
@@ -961,7 +961,7 @@ function App({ boot }: { boot: Boot }) {
     ctxRef.current.spawnSubagent = ultracodeRef.current
       ? (prompt, readOnly) =>
           runSpawnedSubagent({
-            client: createLlmClient({ ...boot.config, model: modelRef.current, effort: "max" }),
+            client: createLlmClient({ ...boot.config, model: modelRef.current, effort: effortRef.current }),
             task: prompt,
             ctx: ctxRef.current,
             shellEnabled: shellRef.current && !readOnly,
@@ -1192,7 +1192,9 @@ function App({ boot }: { boot: Boot }) {
         setCommandHelp(false);
       }
       closeModelDraft();
-      setPickerBoth({ kind: "effort", state: openEffortPicker(effortRef.current, ultracodeRef.current) });
+      if (pickerSurface("alt-p") === "model-effort") {
+        setPickerBoth({ kind: "model", state: freshModelPicker() });
+      }
       return;
     }
     if (k.wheel || k.pageUp || k.pageDown) {
@@ -1231,7 +1233,7 @@ function App({ boot }: { boot: Boot }) {
           }
           return;
         }
-        if (next.effect?.type === "effort") applySelection({ effort: next.effect.effort, ultracode: false });
+        if (next.effect?.type === "effort") applySelection({ effort: next.effect.effort, ultracode: ultracodeRef.current });
         modelDraftRef.current = next.state;
         setModelDraft(next.state);
         return;
@@ -1359,7 +1361,7 @@ function App({ boot }: { boot: Boot }) {
         system(`Model set to ${next.effect.model} for this session.`);
         return;
       }
-      if (next.effect?.type === "effort") applySelection({ effort: next.effect.effort, ultracode: false });
+      if (next.effect?.type === "effort") applySelection({ effort: next.effect.effort, ultracode: ultracodeRef.current });
       setPickerBoth({ kind: "model", state: next.state });
       return;
     }
@@ -1378,9 +1380,9 @@ function App({ boot }: { boot: Boot }) {
       }
       if (next.effect?.type === "select") {
         setPickerBoth(null);
-        const applied = applyEffortChoice(next.effect.choice);
+        const applied = { effort: next.effect.effort, ultracode: next.effect.ultracode };
         applySelection(applied);
-        system(effortSetMessage(applied));
+        system(applied.ultracode ? `${effortSetMessage({ effort: applied.effort, ultracode: false })} UltraCode on.` : effortSetMessage({ effort: applied.effort, ultracode: false }));
         return;
       }
       setPickerBoth({ kind: "effort", state: next.state });
@@ -1683,7 +1685,7 @@ function App({ boot }: { boot: Boot }) {
         />
       ) : null}
       {picker?.kind === "effort" ? (
-        <EffortPicker theme={theme} levels={picker.state.levels} selected={picker.state.selected} />
+        <EffortPicker theme={theme} levels={picker.state.levels} selected={picker.state.selected} ultracode={picker.state.ultracode} />
       ) : null}
       {resumeView ? (
         <ResumePicker
@@ -1754,7 +1756,8 @@ function App({ boot }: { boot: Boot }) {
         mode={mode}
         approval={approval}
         usage={usage}
-        effort={effortStatusLabel(effort, ultracode)}
+        effort={effort}
+        ultracode={ultracode}
         model={model}
         goal={goal}
         cwd={cwdLabel}

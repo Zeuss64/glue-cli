@@ -164,33 +164,32 @@ test("bare /effort opens the picker when the host provides one", async () => {
   assert.match(session.lines.at(-1) ?? "", /Effort set to max/);
 });
 
-test("/effort ultracode is max thinking plus subagents, and off keeps the level", async () => {
+test("/effort ultracode toggles subagents and leaves the level alone", async () => {
   const session = host();
   session.effort = "high";
   session.setEffort = (level) => {
     session.effort = level;
-    session.ultracode = false;
   };
   session.setUltracode = (on) => {
     session.ultracode = on;
-    if (on) session.effort = "max";
   };
   await runSlashCommand("/effort ultracode", session);
   assert.equal(session.ultracode, true);
-  assert.equal(session.effort, "max");
-  assert.match(session.lines.at(-1) ?? "", /max thinking \+ subagents/);
+  assert.equal(session.effort, "high");
+  assert.match(session.lines.at(-1) ?? "", /Dynamic workflows/);
+  assert.match(session.lines.at(-1) ?? "", /Effort stays high/);
   await runSlashCommand("/effort ultracode off", session);
   assert.equal(session.ultracode, false);
-  assert.equal(session.effort, "max");
-  assert.match(session.lines.at(-1) ?? "", /Effort stays max/);
+  assert.equal(session.effort, "high");
+  assert.match(session.lines.at(-1) ?? "", /Effort stays high/);
   await runSlashCommand("/effort status", session);
-  assert.match(session.lines.at(-1) ?? "", /Effort: max/);
+  assert.match(session.lines.at(-1) ?? "", /Effort: high/);
   await runSlashCommand("/effort ultracode on", session);
   await runSlashCommand("/effort status", session);
-  assert.match(session.lines.at(-1) ?? "", /ultracode · max \+ subagents/);
-  await runSlashCommand("/effort high", session);
-  assert.equal(session.ultracode, false);
-  assert.equal(session.effort, "high");
+  assert.match(session.lines.at(-1) ?? "", /high · ultracode/);
+  await runSlashCommand("/effort xhigh", session);
+  assert.equal(session.ultracode, true);
+  assert.equal(session.effort, "xhigh");
 });
 
 test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {

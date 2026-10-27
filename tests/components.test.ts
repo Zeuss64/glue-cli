@@ -17,20 +17,37 @@ test("status bar and permission dialog use the Glue labels", () => {
     createElement(StatusBar, { theme, mode: "acceptEdits", usage: { input: 10, output: 2 } }),
   );
   assert.match(status.lastFrame() ?? "", /accept edits on/);
-  assert.match(status.lastFrame() ?? "", /12 tok/);
+  assert.match(status.lastFrame() ?? "", /tokens:10\/2/);
+  assert.match(status.lastFrame() ?? "", /shift\+tab to cycle/);
   status.unmount();
 
   const effortStatus = render(
-    createElement(StatusBar, { theme, mode: "default", usage: { input: 0, output: 0 }, effort: "high" }),
+    createElement(StatusBar, {
+      theme,
+      mode: "default",
+      usage: { input: 0, output: 0 },
+      effort: "high",
+      model: "glue-lite",
+      cwd: "D:/work",
+      contextWindow: 128000,
+    }),
   );
-  assert.match(effortStatus.lastFrame() ?? "", /effort high/);
+  const effortFrame = stripAnsi(effortStatus.lastFrame() ?? "");
+  assert.match(effortFrame, /D:\/work/);
+  assert.match(effortFrame, /\[glue-lite \(128K context\)\]/);
+  assert.match(effortFrame, /effort:high/);
+  assert.match(effortFrame, /tokens:0\/0/);
+  assert.match(effortFrame, /ctx:0% \(0\/128K\)/);
+  assert.match(effortFrame, /cache:-/);
+  assert.match(effortFrame, /◎ high · \/effort/);
   effortStatus.unmount();
 
   const compact = render(
     createElement(StatusBar, { theme, mode: "default", usage: { input: 10, output: 2 }, compact: true }),
   );
-  assert.doesNotMatch(compact.lastFrame() ?? "", /12 tok/);
+  assert.doesNotMatch(compact.lastFrame() ?? "", /tokens:/);
   assert.match(compact.lastFrame() ?? "", /manual mode on/);
+  assert.match(compact.lastFrame() ?? "", /◎/);
   compact.unmount();
 
   const custom = render(createElement(CustomStatusLine, { theme, lines: ["gpt-4o-mini ▓░░░░░░░░░ 8%"] }));
@@ -153,18 +170,21 @@ test("resume picker lists a session and the keys that select it", () => {
     }),
   );
   const modelFrame = models.lastFrame() ?? "";
+  assert.match(modelFrame, /Select model/);
   assert.match(modelFrame, /1\/1 · solo/);
   assert.match(modelFrame, /❯\s+solo/);
-  assert.match(modelFrame, /enter select/);
-  assert.match(modelFrame, /esc cancel/);
-  assert.match(modelFrame, /effort auto/);
+  assert.match(modelFrame, /Enter to select/);
+  assert.match(modelFrame, /Esc to cancel/);
+  assert.match(modelFrame, /◎ Auto effort/);
+  assert.match(modelFrame, /←\/→ to adjust/);
   models.unmount();
 
   const auto = render(
     createElement(StatusBar, { theme, mode: "default", usage: { input: 0, output: 0 }, approval: "auto", effort: "max" }),
   );
   assert.match(auto.lastFrame() ?? "", /auto mode on/);
-  assert.match(auto.lastFrame() ?? "", /effort max/);
+  assert.match(auto.lastFrame() ?? "", /effort:max/);
+  assert.match(auto.lastFrame() ?? "", /shift\+tab/);
   auto.unmount();
 
   const meter = render(createElement(ScrollMeter, { theme, label: "▴ 1–10/40  ·  滚轮或 PgUp 看更早 · PgDn 到底" }));
@@ -190,36 +210,43 @@ test("resume picker lists a session and the keys that select it", () => {
   const effort = render(
     createElement(EffortPicker, {
       theme,
-      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
+      levels: ["low", "medium", "high", "xhigh", "max"],
       selected: 2,
     }),
   );
-  const effortFrame = effort.lastFrame() ?? "";
-  assert.match(effortFrame, /Effort/);
-  assert.match(effortFrame, /Faster/);
-  assert.match(effortFrame, /Smarter/);
-  assert.match(effortFrame, /\[high\]/);
-  assert.match(effortFrame, /low/);
-  assert.match(effortFrame, /ultracode/);
-  assert.match(effortFrame, /auto/);
-  assert.match(effortFrame, /●/);
-  assert.match(effortFrame, /Deeper thinking/);
-  assert.match(effortFrame, /tab UltraCode/);
-  assert.match(effortFrame, /enter set/);
-  assert.match(effortFrame, /esc cancel/);
+  const pickerFrame = stripAnsi(effort.lastFrame() ?? "");
+  assert.match(pickerFrame, /Effort/);
+  assert.match(pickerFrame, /Faster/);
+  assert.match(pickerFrame, /Smarter/);
+  assert.match(pickerFrame, /high/);
+  assert.match(pickerFrame, /Ultracode off/);
+  assert.match(pickerFrame, /Tab to toggle/);
+  assert.match(pickerFrame, /Deeper thinking/);
+  assert.match(pickerFrame, /←\/→ to adjust/);
+  assert.match(pickerFrame, /Enter to confirm/);
+  assert.match(pickerFrame, /Esc to cancel/);
+  assert.doesNotMatch(pickerFrame, /s for this session only/);
+  const pickerLines = pickerFrame.split("\n");
+  const labelLine = pickerLines.find((line) => line.includes("medium") && line.includes("xhigh")) ?? "";
+  const trackLine = pickerLines.find((line) => line.includes("▲")) ?? "";
+  const highAt = labelLine.indexOf("high");
+  const knobAt = trackLine.indexOf("▲");
+  assert.ok(highAt >= 0 && knobAt >= highAt && knobAt < highAt + "high".length);
   effort.unmount();
 
   const ultra = render(
     createElement(EffortPicker, {
       theme,
-      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
-      selected: 5,
+      levels: ["low", "medium", "high", "xhigh", "max"],
+      selected: 4,
+      ultracode: true,
     }),
   );
-  const ultraFrame = ultra.lastFrame() ?? "";
-  assert.match(ultraFrame, /\[ultracode\]/);
-  assert.match(ultraFrame, /max thinking \+ subagent dispatch/);
-  assert.match(ultraFrame, /May use many tokens/);
+  const ultraFrame = stripAnsi(ultra.lastFrame() ?? "");
+  assert.match(ultraFrame, /Ultracode on/);
+  assert.match(ultraFrame, /dynamic workflows on every task/);
+  assert.match(ultraFrame, /May use excessive tokens/);
+  assert.doesNotMatch(ultraFrame.split("\n").find((line) => line.includes("xhigh")) ?? "", /ultracode/);
   ultra.unmount();
 });
 
@@ -288,18 +315,18 @@ test("status bar shows context percent, window size, and cache hit when the data
       model: "lite",
       usage: { input: 1000, output: 0, cacheRead: 250 },
       contextWindow: 128000,
-      fields: ["model", "effort", "tokens", "context", "contextSize", "cache"],
     }),
   );
   const frame = view.lastFrame() ?? "";
   const flat = frame.replace(/\s+/g, " ");
   assert.match(flat, /lite/);
-  assert.match(flat, /effort max/);
-  assert.match(flat, /1\.0k tok/);
-  assert.match(flat, /ctx 1%/);
-  assert.match(flat, /window 128\.0k/);
-  assert.match(flat, /cache 25%/);
+  assert.match(flat, /128K context/);
+  assert.match(flat, /effort:max/);
+  assert.match(flat, /tokens:1000\/0/);
+  assert.match(flat, /ctx:1% \(1K\/128K\)/);
+  assert.match(flat, /cache:25%/);
   assert.match(flat, /manual mode on/);
+  assert.match(flat, /◎ max · \/effort/);
   view.unmount();
   const quiet = render(
     createElement(StatusBar, {
@@ -307,10 +334,9 @@ test("status bar shows context percent, window size, and cache hit when the data
       mode: "default",
       usage: { input: 0, output: 0 },
       contextWindow: 128000,
-      fields: ["tokens", "cache"],
     }),
   );
-  assert.doesNotMatch(quiet.lastFrame() ?? "", /cache/);
-  assert.doesNotMatch(quiet.lastFrame() ?? "", /tok/);
+  assert.match(quiet.lastFrame() ?? "", /cache:-/);
+  assert.match(quiet.lastFrame() ?? "", /tokens:0\/0/);
   quiet.unmount();
 });
