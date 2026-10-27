@@ -48,15 +48,31 @@ Keep these bindings:
 
 ## Layout and resize
 
-Ink calls `clearTerminal` (erase screen and scrollback) when the painted frame is at least `stdout.rows` tall. Classic cmd freezes on that, and the prompt scrolls off the bottom. `frameSize` in `src/tui/viewport.ts` keeps the root `Box` one row shorter than the smallest reported window.
+Ink calls `clearTerminal` (erase screen and scrollback, CSI 3J) when the painted frame is at least `stdout.rows` tall. Classic cmd freezes on that, and the prompt scrolls off the bottom. `frameSize` in `src/tui/viewport.ts` keeps a single report one row shorter than the window. The live session uses `reconcileSize` instead of always taking the smaller report: the stdout that just changed wins, so a grow into fullscreen is not pinned by a stale smaller value, and a shrink is not pinned by a stale fullscreen value. When both reports change in the same read, the smaller one still wins. Values of 0 or 1 are ignored. The root box is `height={termRows} width={termCols} overflow="hidden"`.
 
-`app.tsx` passes three reports into `frameSize`: React state, Ink's stdout, and `process.stdout`. Values of 0 or 1 are ignored. If the reports disagree, the smaller one wins, so a leftover fullscreen size cannot paint past a window that was just dragged smaller. The root box is `height={termRows} width={termCols} overflow="hidden"`.
+On `resize` and `SIGWINCH`, and again after 40ms, the app reads Ink's stdout and `process.stdout`. A 200ms poll covers classic cmd, which sometimes never emits the event. A real size change calls `reflowTerminal`: Ink's `clear()` resets the log-update line count, then CSI `H` + `2J` erases wrapped leftovers and homes the cursor so the next paint starts clean. That is what removes the doubled orange input border and the chrome left mid-window. Do not enter the alternate screen (`?1049h`). Do not send CSI 3J. On exit, `restoreTerminal` leaves any alternate screen (`?1049l`), erases the visible frame, and shows the cursor so the orange box is not painted over `cmd`'s prompt.
 
-On `resize`, the app reads rows and columns immediately and again after 40ms. Legacy cmd often updates the window size a moment after Alt+Enter. Listen on Ink's stdout, and also on `process.stdout` when it is a different stream. Do not enter the alternate screen (`?1049h`). A shorter frame is enough, and conhost's alternate buffer plus a scrollback clear is the freeze.
+The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. `windowTranscript` is the on-screen line window. `visibleTranscript` still tails a single item for older callers. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
 
-The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. `visibleTranscript` tails long items to `transcriptBudget` and drops tool diff and detail when the row budget is spent. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
+Fullscreen and a resized window use the same frame rule. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. Cover new size rules in `tests/viewport.test.ts`.
 
-Fullscreen and a resized window use the same helper. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. Both still show the tail of a long reply. Cover new size rules in `tests/viewport.test.ts`.
+## Scroll
+
+The host scrollbar does not track the transcript. The frame is repainted in place, and the alternate screen stays off, so the Windows slider is not the position of the conversation. Wheel (SGR mouse), PgUp, and PgDn move `windowTranscript`. The line `▴ 12–20/80 · 滚轮或 PgUp 看更早 · PgDn 到底` is the indicator. Legacy conhost often does not send wheel bytes; PgUp and PgDn still work. Do not tell the user the host scrollbar moves.
+
+## Chinese IME
+
+English input is committed bytes and stays in the prompt. A composing IME draws its preedit and candidate window at the real console cursor, which Ink leaves at the bottom-left after each paint. `imeAnchor` is the caret cell inside the input border; after each paint the app writes a cursor-position sequence and leaves the cursor hidden, so the drawn block and the hardware cursor do not both blink. The composition string itself is not delivered on stdin until the user commits it.
+
+Residual limits: some conhost builds ignore a hidden cursor and keep the candidate window on the window edge. A caret blink can erase the overlay until the IME draws it again. Glue cannot place the candidate window anywhere except the console cursor.
+
+## Slash commands, `/goal`, `/auto`, `/statusline`
+
+`/help` opens a bounded panel (`CommandHelp`). It does not append another copy of the catalog to the transcript, so unavailable samples cannot stack a second "Glue Cli commands" dump. `/login`, `/mcp`, `/ide`, `/plugin`, `/hooks`, `/voice`, `/desktop`, and the other unavailable names push one line and close that panel.
+
+Tab completion is prefix-only (`filterCommands` / `cycleSlash`). One match accepts the name. Several matches cycle and the slash menu highlights the same row. Plain Tab is `\t`. Kitty `CSI 9 u` and modifyOtherKeys `CSI 27 ; modifier ; 9 ~` are Tab as well. Shift+Tab is still the permission cycle.
+
+`/goal` stores a sentence on the session and in `.agent/ui.json`. The system prompt includes it. `/goal clear` removes it. `/auto on` allows low-risk edits and local commands; `rm -rf`, paths outside the workspace, network installs, and privilege escalation still ask. The footer shows `manual mode on` or `auto mode on`. `/statusline` chooses the fields under the input. The default is shortcuts, effort, and tokens. `/statusline 设计` adds model and goal. The mode badge stays on the right.
 
 ## `/model`
 

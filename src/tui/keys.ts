@@ -118,11 +118,13 @@ export function blankKey(): KeyIn {
     pageDown: false,
     home: false,
     end: false,
+    wheelUp: false,
+    wheelDown: false,
   };
 }
 
 function push(keys: KeyIn[], key: KeyIn): void {
-  if (key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
+  if (key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end || key.wheelUp || key.wheelDown) {
     keys.push(key);
   }
 }
@@ -179,6 +181,7 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
 
 function csiKey(body: string, final: string): KeyIn {
   const key = blankKey();
+  if (body.startsWith("<")) return mouseKey(body, final);
   if (final === "Z") {
     key.tab = true;
     key.shift = true;
@@ -187,6 +190,8 @@ function csiKey(body: string, final: string): KeyIn {
   const numbers = body.split(";").map((part) => part.replace(/[^\d]/g, "")).filter((part) => part.length > 0).map((part) => Number(part));
   const primary = numbers[0] ?? 0;
   applyModifier(key, numbers.length > 1 ? (numbers[1] ?? 1) : 1);
+  if (final === "u") return kittyKey(key, primary);
+  if (final === "~" && primary === 27) return modifyOtherKeys(key, numbers);
   if (final === "A" || final === "a") key.up = true;
   else if (final === "B" || final === "b") key.down = true;
   else if (final === "C" || final === "c") key.right = true;
@@ -241,6 +246,56 @@ function legacyKey(scan: string): KeyIn | undefined {
       break;
     default:
       return undefined;
+  }
+  return key;
+}
+
+/** SGR mouse: `\x1b[<button;x;yM`. Wheel is button 64 (up) and 65 (down). */
+function mouseKey(body: string, final: string): KeyIn {
+  const key = blankKey();
+  if (final !== "M" && final !== "m") return key;
+  const parts = body.slice(1).split(";");
+  const button = Number(parts[0] ?? "");
+  if (!Number.isFinite(button)) return key;
+  const base = button & ~0b11100;
+  if (base === 64) key.wheelUp = true;
+  else if (base === 65) key.wheelDown = true;
+  return key;
+}
+
+/** Kitty keyboard protocol. Tab is code point 9 (`CSI 9 u`). */
+function kittyKey(key: KeyIn, code: number): KeyIn {
+  if (code === 9) {
+    key.tab = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 13) {
+    key.return = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 27) {
+    key.escape = true;
+    key.input = "";
+    return key;
+  }
+  if (code >= 32) key.input = String.fromCodePoint(code);
+  return key;
+}
+
+/** xterm modifyOtherKeys: `CSI 27 ; modifier ; key ~`. Tab is key 9. */
+function modifyOtherKeys(key: KeyIn, numbers: number[]): KeyIn {
+  const code = numbers[2] ?? 0;
+  if (code === 9) {
+    key.tab = true;
+    key.input = "";
+    return key;
+  }
+  if (code === 13) {
+    key.return = true;
+    key.input = "";
+    return key;
   }
   return key;
 }

@@ -44,6 +44,12 @@ base_url = "https://api.openai.com/v1"
 - `/model` 打开模型列表，只有一个模型也会打开。↑↓ 移动，回车选定，Esc 取消。←→ 改 effort。`/model <id>` 直接切换，不打开列表。
 - `/effort` 显示档位。`/effort low|medium|high|xhigh|max` 设置，`/effort auto` 回到模型默认。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
+- `/goal <一句话>` 记下当前目标，写入会话和 `.agent/ui.json`。`/goal clear` 清除。
+- `/auto on` 自动放行低风险的读、改和本地命令。`rm -rf`、越出工作区、联网安装、提权仍会询问。页脚在 `manual mode on` 和 `auto mode on` 之间切换。`/auto off` 回到手动。
+- `/statusline` 选择输入框下的字段（tokens、effort、model、目标等）。`/statusline 设计` 用更完整的一行，`/statusline reset` 恢复默认。
+- `/help` 打开一页命令，不再把整表重复追加到对话里。`/login`、`/mcp` 这类不可用命令只提示一行。
+- Tab 按前缀补全 `/` 命令；多个匹配时循环，并高亮菜单。Shift+Tab 仍切换权限。
+- 滚轮、PgUp、PgDn 滚动对话。位置在界面里的 `▴ 起–止/总`，Windows 右侧滚动条不会跟着走。退出时清掉最后一帧，避免橙色输入框留在 cmd 提示符上。窗口变大或变小时按新的行列重画整帧。
 
 Shift+Tab 切换权限。改文件前会确认。界面改动见 [docs/tui-hacking.md](docs/tui-hacking.md)。
 
@@ -58,4 +64,4 @@ Coding agent for CPLD. `glue` is an MIT-licensed terminal agent. It speaks OpenA
 
 `npm run install:global` builds and runs `npm install -g .`. On Windows, `glue.cmd` is in the directory `npm prefix -g` prints; add that directory to the user Path if needed (`%USERPROFILE%\npm-global` when the default prefix is not writable). The first session creates `~/.glue/config.toml` when it is missing and does not write an API key. Set `GLUE_API_KEY` (or `AGENT_API_KEY` / `OPENAI_API_KEY`).
 
-`/model` opens a picker even for one model. `/model <id>` sets an id directly. Left and right in the picker change effort. `/resume` opens the session picker. See [docs/tui-hacking.md](docs/tui-hacking.md).
+`/model` opens a picker even for one model. `/model <id>` sets an id directly. Left and right in the picker change effort. `/goal` keeps a persistent goal. `/auto on` auto-approves low-risk tools and still asks for high-risk shell (recursive delete, network install, privilege escalation). `/statusline` picks the footer fields. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. Wheel and PgUp scroll inside the transcript; the host scrollbar does not. Resize repaints the frame, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).

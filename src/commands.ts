@@ -4,9 +4,10 @@ import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
 import { EFFORT_CYCLE, normalizeEffort, type EffortLevel } from "./effort.js";
 import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
-import { normalizeMode } from "./permissions.js";
+import { normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
+import { DESIGNED_STATUS_FIELDS, parseStatuslineRequest, parseStatuslineSpec, statuslineSpec, type StatusField } from "./statusline.js";
 
 export interface SlashCommand {
   name: string;
@@ -32,6 +33,15 @@ export interface CommandHost {
   sessionId: string;
   rules: PermissionRules;
   tasks: Array<{ id: string; command: string; status: string }>;
+  /** Persistent goal. Empty means none. */
+  goal?: string;
+  setGoal?(goal: string): void;
+  /** manual asks; auto allows low-risk tools and still asks for high-risk ones. */
+  approval?: ApprovalMode;
+  setApproval?(mode: ApprovalMode): void;
+  /** Raw `/statusline` spec. Empty means the default fields. */
+  statusline?: string;
+  setStatusline?(spec: string): void;
   push(text: string, kind?: "system" | "error"): void;
   setModel(model: string): void;
   /** Present in the TUI. `/model` with no id opens the picker instead of printing the id. */
@@ -100,6 +110,9 @@ const CATALOG: SlashCommand[] = [
   { name: "rewind", aliases: ["undo"], summary: "Restore files and drop later turns", available: true },
   { name: "btw", summary: "Ask a side question that is not stored", available: true },
   { name: "output-style", summary: "normal or concise", available: true },
+  { name: "goal", summary: "Show or set a persistent goal for this session", available: true },
+  { name: "auto", summary: "Auto-approve low-risk tools; high-risk still asks", available: true },
+  { name: "statusline", summary: "Choose the fields under the input", available: true },
   { name: "login", summary: "Account login", available: false, note: "Glue uses an API key. Set GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY." },
   { name: "logout", summary: "Sign out", available: false, note: "There is no account session. Unset the API key in your environment to stop using it." },
   { name: "mcp", summary: "MCP servers", available: false, note: "MCP servers are not in this build. Glue's tools are the built-in file, search, and optional shell tools." },
@@ -115,7 +128,7 @@ const CATALOG: SlashCommand[] = [
   { name: "install-github-app", summary: "GitHub app", available: false, note: "GitHub app install is not in this build." },
 ];
 
-const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "effort", "permissions", "theme"]);
+const IMMEDIATE = new Set(["status", "cost", "usage", "stats", "help", "exit", "quit", "model", "effort", "permissions", "theme", "goal", "auto", "statusline"]);
 
 export function commandCatalog(): SlashCommand[] {
   return CATALOG;
@@ -127,14 +140,52 @@ export function isImmediateCommand(input: string): boolean {
 }
 
 export function filterCommands(query: string): SlashCommand[] {
-  const q = query.toLowerCase();
+  const q = query.trim().toLowerCase();
   return CATALOG.filter((command) => {
-    const names = [command.name, ...(command.aliases ?? [])];
-    const hit = !q || names.some((name) => name.toLowerCase().startsWith(q) || name.toLowerCase().includes(q));
-    if (!hit) return false;
-    if (!command.available) return names.some((name) => name.toLowerCase() === q);
-    return true;
+    const names = [command.name, ...(command.aliases ?? [])].map((name) => name.toLowerCase());
+    if (!q) return command.available;
+    return names.some((name) => name.startsWith(q));
   });
+}
+
+export function helpLines(): string[] {
+  return helpText().split("\n");
+}
+
+export function isHelpDump(text: string): boolean {
+  return text.startsWith("Glue Cli commands");
+}
+
+/** A help dump opens the bounded panel. Anything else is a single transcript line. */
+export function presentCommandOutput(text: string): { helpPanel: boolean; line: string | null } {
+  if (isHelpDump(text)) return { helpPanel: true, line: null };
+  return { helpPanel: false, line: text };
+}
+
+export function unavailableLine(command: SlashCommand): string {
+  const note = (command.note ?? `/${command.name} 当前版本没有这个功能。`).replace(/\s+/g, " ").trim();
+  return `/${command.name} 不可用。${note}`;
+}
+
+/**
+ * Run the command the user typed when it is an exact name.
+ * A unique prefix may complete. A highlighted menu row is used only when the
+ * text itself is an ambiguous prefix, so `/login` is never rewritten to `/help`.
+ */
+export function resolveSubmittedSlash(input: string, highlightIndex: number): string {
+  const trimmed = input.trim();
+  const parsed = splitCommand(trimmed);
+  if (!parsed) return trimmed;
+  if (parsed.args) return trimmed;
+  const exact = findExact(parsed.name);
+  if (exact) return `/${exact.name}`;
+  const matches = filterCommands(parsed.name);
+  if (matches.length === 1 && matches[0]) return `/${matches[0].name}`;
+  if (matches.length > 1) {
+    const picked = matches[Math.max(0, Math.min(highlightIndex, matches.length - 1))];
+    if (picked) return `/${picked.name}`;
+  }
+  return trimmed;
 }
 
 export function helpText(): string {
@@ -162,7 +213,7 @@ export async function runSlashCommand(input: string, host: CommandHost): Promise
     return;
   }
   if (!command.available) {
-    host.push(command.note ?? `/${command.name} is not available in Glue.`);
+    host.push(unavailableLine(command));
     return;
   }
   await dispatch(command.name, parsed.args, host);
@@ -225,6 +276,8 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
           `Model:      ${host.model}`,
           `Effort:     ${host.effort ?? "auto"}`,
           `Mode:       ${host.permissionMode}`,
+          `Approval:   ${host.approval ?? "manual"}`,
+          `Goal:       ${host.goal?.trim() || "(none)"}`,
           `Profile:    ${host.profile}`,
           `Shell:      ${host.shellEnabled ? "enabled" : "disabled"}`,
           `Workspace:  ${host.workspace}`,
@@ -324,6 +377,15 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
         host.push(`Output style: ${args}`);
       } else host.push("Usage: /output-style normal|concise");
       return;
+    case "goal":
+      applyGoal(args, host);
+      return;
+    case "auto":
+      applyAuto(args, host);
+      return;
+    case "statusline":
+      applyStatusline(args, host);
+      return;
     default:
       host.push(`/${name} is not wired in this build.`, "error");
   }
@@ -341,10 +403,13 @@ function applyConfig(args: string, host: CommandHost): void {
         `editor=${host.editor}`,
         `output_style=${host.outputStyle}`,
         `shell=${host.shellEnabled}`,
+        `approval=${host.approval ?? "manual"}`,
+        `goal=${host.goal?.trim() || ""}`,
+        `statusline=${host.statusline?.trim() || "hint,effort,tokens"}`,
         `protocol=${host.config.protocol}`,
         `base_url=${host.config.baseURL}`,
         `config=${host.config.configPath ?? "(defaults)"}`,
-        "Set one with /config key=value. Keys: model, effort, permission_mode, profile, theme, editor, output_style, shell.",
+        "Set one with /config key=value. Keys: model, effort, permission_mode, profile, theme, editor, output_style, shell, approval, goal, statusline.",
       ].join("\n"),
     );
     return;
@@ -370,11 +435,110 @@ function applyConfig(args: string, host: CommandHost): void {
   else if (key === "editor" && (value === "vim" || value === "normal")) host.setEditor(value);
   else if (key === "output_style" && (value === "concise" || value === "normal")) host.setOutputStyle(value);
   else if (key === "shell") host.setShell(/^(1|true|yes|on)$/i.test(value));
-  else {
+  else if (key === "approval" || key === "auto") {
+    const approval = normalizeApproval(value);
+    if (!approval || !host.setApproval) {
+      host.push("Usage: /config approval=manual|auto", "error");
+      return;
+    }
+    host.setApproval(approval);
+  } else if (key === "goal") {
+    if (!host.setGoal) {
+      host.push("这个会话不能保存目标。", "error");
+      return;
+    }
+    host.setGoal(value);
+  } else if (key === "statusline") {
+    const parsed = parseStatuslineRequest(value);
+    if (parsed.kind === "show") {
+      host.push(`状态栏：${parseStatuslineSpec(host.statusline).join(" · ")}`);
+      return;
+    }
+    if (!host.setStatusline) {
+      host.push("这个会话不能保存状态栏。", "error");
+      return;
+    }
+    if (parsed.kind === "invalid") {
+      host.push("不认识这些状态栏字段。可用：hint, model, effort, tokens, cwd, branch, goal, shell, session。", "error");
+      return;
+    }
+    const fields = parsed.kind === "set" ? parsed.fields : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parseStatuslineSpec("");
+    host.setStatusline(statuslineSpec(fields));
+  } else {
     host.push(`Unknown config key ${key}`, "error");
     return;
   }
   host.push(`Set ${key}=${value} for this session.`);
+}
+
+function applyGoal(args: string, host: CommandHost): void {
+  if (!args || args === "status" || args === "状态") {
+    host.push(host.goal?.trim() ? `当前目标：${host.goal.trim()}` : "还没有目标。用 /goal <一句话> 设定，/goal clear 清除。");
+    return;
+  }
+  if (["clear", "none", "off", "reset", "清除"].includes(args.toLowerCase())) {
+    if (!host.setGoal) {
+      host.push("这个会话不能保存目标。", "error");
+      return;
+    }
+    host.setGoal("");
+    host.push("已清除目标。");
+    return;
+  }
+  if (!host.setGoal) {
+    host.push("这个会话不能保存目标。", "error");
+    return;
+  }
+  host.setGoal(args);
+  host.push(`目标已设为：${args}`);
+}
+
+function applyAuto(args: string, host: CommandHost): void {
+  const current = host.approval ?? "manual";
+  const trimmed = args.trim();
+  if (!trimmed || trimmed === "status" || trimmed === "状态") {
+    host.push(
+      current === "auto"
+        ? "自动确认已开。低风险的读、改和本地命令会直接执行，rm -rf、越出目录、联网安装和提权仍会询问。"
+        : "手动确认已开。改文件和执行命令前会询问。/auto on 打开自动确认。",
+    );
+    return;
+  }
+  const next = trimmed === "toggle" || trimmed === "切换" ? (current === "auto" ? "manual" : "auto") : normalizeApproval(trimmed);
+  if (!next || !host.setApproval) {
+    host.push("用法：/auto on | off | toggle。高风险操作始终询问。", "error");
+    return;
+  }
+  host.setApproval(next);
+  host.push(next === "auto" ? "已开启自动确认：低风险操作直接执行，高风险仍会询问。" : "已关闭自动确认，回到手动模式。");
+}
+
+function applyStatusline(args: string, host: CommandHost): void {
+  const parsed = parseStatuslineRequest(args);
+  if (parsed.kind === "show") {
+    const fields = parseStatuslineSpec(host.statusline);
+    host.push(
+      [
+        `状态栏：${fields.join(" · ")}`,
+        "右侧始终显示 manual / auto。",
+        "用法：/statusline model effort tokens，/statusline 设计，/statusline reset。",
+        "字段：hint, model, effort, tokens, cwd, branch, goal, shell, session。",
+      ].join("\n"),
+    );
+    return;
+  }
+  if (!host.setStatusline) {
+    host.push("这个会话不能保存状态栏。", "error");
+    return;
+  }
+  if (parsed.kind === "invalid") {
+    host.push("不认识这些字段。试试 /statusline model tokens，或 /statusline 设计。", "error");
+    return;
+  }
+  const fields: StatusField[] =
+    parsed.kind === "reset" ? [...parseStatuslineSpec("")] : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parsed.fields;
+  host.setStatusline(statuslineSpec(fields));
+  host.push(`状态栏已设为：${fields.join(" · ")}`);
 }
 
 function applyEffort(args: string, host: CommandHost): void {

@@ -11,6 +11,7 @@ export interface PromptParts {
   outputStyle: "normal" | "concise";
   extraRoots?: string[];
   append?: string;
+  goal?: string;
 }
 
 export function buildSystemPrompt(parts: PromptParts): string {
@@ -43,6 +44,9 @@ export function buildSystemPrompt(parts: PromptParts): string {
       : "Shell: disabled. Do not call run_shell. Ask the user to enable shell in .agent/config.toml if a command is required.",
     parts.permissionMode === "plan"
       ? "Plan mode is on. Read and search only. When you have a plan, call exit_plan_mode. Do not edit files or run mutating commands."
+      : "",
+    parts.goal?.trim()
+      ? `Current goal: ${parts.goal.trim()}\nKeep working toward this goal until it is done or the user changes it with /goal. Do not drop it for an unrelated task.`
       : "",
     parts.outputStyle === "concise"
       ? "Output style: concise. Short paragraphs, no preamble, one sentence after a successful edit."

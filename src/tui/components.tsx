@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { compactDiff } from "../diff.js";
-import { modeLabel } from "../permissions.js";
+import { footerModeLabel } from "../permissions.js";
 import { displayName } from "../render/format.js";
+import { DEFAULT_STATUS_FIELDS, formatStatusLeft, type StatusField } from "../statusline.js";
+import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
@@ -152,6 +154,7 @@ export function PromptBox({
   anchor = null,
   placeholder,
   hint,
+  preedit,
 }: {
   theme: Theme;
   text: string;
@@ -159,6 +162,8 @@ export function PromptBox({
   anchor?: number | null;
   placeholder?: string;
   hint?: string;
+  /** IME composition, drawn inside the border when the host can see it. */
+  preedit?: string;
 }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -186,6 +191,7 @@ export function PromptBox({
             ),
           )}
           {showPlaceholder ? <Text color={theme.muted}>{placeholder}</Text> : null}
+          {preedit ? <Text color={theme.accent}>{preedit}</Text> : null}
         </Text>
       </Box>
     </Box>
@@ -198,21 +204,81 @@ export function StatusBar({
   usage,
   hint,
   effort,
+  approval = "manual",
+  fields,
+  model,
+  goal,
+  cwd,
+  branch,
+  shell,
+  session,
 }: {
   theme: Theme;
   mode: PermissionMode;
   usage: TokenUsage;
   hint?: string;
   effort?: string;
+  approval?: ApprovalMode;
+  fields?: readonly StatusField[];
+  model?: string;
+  goal?: string;
+  cwd?: string;
+  branch?: string;
+  shell?: boolean;
+  session?: string;
 }) {
-  const tokens = usage.input + usage.output;
-  const tokenLabel = tokens > 0 ? `  ${formatTokens(tokens)} tok` : "";
-  const effortLabel = effort ? ` · effort ${effort}` : "";
+  const left = formatStatusLeft(fields ?? DEFAULT_STATUS_FIELDS, {
+    hint,
+    effort,
+    usage,
+    model,
+    goal,
+    cwd,
+    branch,
+    shell,
+    session,
+  });
   return (
     <Box marginTop={0} flexShrink={0}>
-      <Text color={theme.muted}>{hint || "? for shortcuts"}{effortLabel}{tokenLabel}</Text>
+      <Text color={theme.muted}>{left}</Text>
       <Box flexGrow={1} />
-      <Text color={theme.mode[mode]}>{modeLabel(mode)}</Text>
+      <Text color={theme.mode[mode]}>{footerModeLabel(mode, approval)}</Text>
+    </Box>
+  );
+}
+
+export function ScrollMeter({ theme, label }: { theme: Theme; label: string }) {
+  if (!label) return null;
+  return (
+    <Box flexShrink={0}>
+      <Text color={theme.muted}>{label}</Text>
+    </Box>
+  );
+}
+
+export function CommandHelp({
+  theme,
+  lines,
+  offset,
+  windowSize = 10,
+}: {
+  theme: Theme;
+  lines: string[];
+  offset: number;
+  windowSize?: number;
+}) {
+  const max = Math.max(0, lines.length - 1);
+  const start = Math.max(0, Math.min(offset, max));
+  const slice = lines.slice(start, start + windowSize);
+  const from = lines.length === 0 ? 0 : start + 1;
+  const to = start + slice.length;
+  return (
+    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
+      <Text color={theme.accent}>命令</Text>
+      {slice.map((line, index) => (
+        <Text key={`${start}:${index}`} color={theme.muted}>{line || " "}</Text>
+      ))}
+      <Text color={theme.muted}>{`${from}–${to}/${lines.length}  ·  ↑↓ 滚动 · Esc 关闭 · 不可用命令只提示一行`}</Text>
     </Box>
   );
 }
@@ -398,9 +464,4 @@ export function ChoiceDialog({
 function trim(value: string, max: number): string {
   const one = value.replace(/\s+/g, " ").trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  return `${(n / 1000).toFixed(1)}k`;
 }

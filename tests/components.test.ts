@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import test from "node:test";
-import { ModelPicker, PermissionDialog, ResumePicker, StatusBar, ToolBlock } from "../src/tui/components.js";
+import { CommandHelp, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, StatusBar, ToolBlock } from "../src/tui/components.js";
 import { THEMES } from "../src/tui/theme.js";
 
 const theme = THEMES.ansi;
@@ -96,4 +96,31 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.match(modelFrame, /esc cancel/);
   assert.match(modelFrame, /effort auto/);
   models.unmount();
+
+  const auto = render(
+    createElement(StatusBar, { theme, mode: "default", usage: { input: 0, output: 0 }, approval: "auto", effort: "max" }),
+  );
+  assert.match(auto.lastFrame() ?? "", /auto mode on/);
+  assert.match(auto.lastFrame() ?? "", /effort max/);
+  auto.unmount();
+
+  const meter = render(createElement(ScrollMeter, { theme, label: "▴ 1–10/40  ·  滚轮或 PgUp 看更早 · PgDn 到底" }));
+  assert.match(meter.lastFrame() ?? "", /1–10\/40/);
+  assert.match(meter.lastFrame() ?? "", /滚轮或 PgUp/);
+  meter.unmount();
+
+  const help = render(
+    createElement(CommandHelp, {
+      theme,
+      offset: 0,
+      windowSize: 2,
+      lines: ["Glue Cli commands", "/help show", "/login hidden"],
+    }),
+  );
+  const helpFrame = help.lastFrame() ?? "";
+  assert.match(helpFrame, /Glue Cli commands/);
+  assert.match(helpFrame, /\/help show/);
+  assert.doesNotMatch(helpFrame, /\/login hidden/);
+  assert.match(helpFrame, /不可用命令只提示一行/);
+  help.unmount();
 });

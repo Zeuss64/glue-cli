@@ -92,14 +92,35 @@ export function displayWidth(text: string): number {
 }
 
 export function visualLines(text: string, columns: number): number {
+  return wrapLines(text, columns).length;
+}
+
+/** Hard newlines and display-width wraps. An empty string is one line. */
+export function wrapLines(text: string, columns: number): string[] {
   const width = Math.max(1, columns);
-  if (!text) return 1;
-  let lines = 0;
+  if (!text) return [""];
+  const out: string[] = [];
   for (const line of text.split("\n")) {
-    const taken = displayWidth(line);
-    lines += Math.max(1, Math.ceil(taken / width));
+    if (!line) {
+      out.push("");
+      continue;
+    }
+    let buf = "";
+    let used = 0;
+    for (const part of graphemes(line)) {
+      const partWidth = graphemeWidth(part.segment);
+      if (buf && used + partWidth > width) {
+        out.push(buf);
+        buf = part.segment;
+        used = partWidth;
+      } else {
+        buf += part.segment;
+        used += partWidth;
+      }
+    }
+    out.push(buf);
   }
-  return lines;
+  return out.length ? out : [""];
 }
 
 export function tailColumns(text: string, columns: number): string {
