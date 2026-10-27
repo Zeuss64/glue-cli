@@ -80,7 +80,7 @@ import {
   CommandHelp,
 } from "./components.js";
 import { isModelDraft, modelWindow, openModelPicker, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
-import { NAMED_ACCENTS, THEMES, type Theme } from "./theme.js";
+import { NAMED_ACCENTS, THEMES, textInk, type Theme } from "./theme.js";
 
 export interface Boot {
   config: AppConfig;
@@ -1660,7 +1660,7 @@ function App({ boot }: { boot: Boot }) {
       </Box>
       <Box flexGrow={1} flexShrink={1} minHeight={0} flexDirection="column" overflow="hidden" justifyContent="flex-end">
         {items.length === 0 && !commandHelp ? <Welcome theme={theme} profile={profile} /> : null}
-        {scrollNote ? <Text color={theme.muted}>{scrollNote}</Text> : null}
+        {scrollNote ? <Text {...textInk(theme, theme.muted)}>{scrollNote}</Text> : null}
         <TranscriptView items={view.items} theme={theme} expanded={expanded} />
       </Box>
       {showTodos ? <TodoList todos={todos} theme={theme} /> : null}
@@ -1704,7 +1704,7 @@ function App({ boot }: { boot: Boot }) {
       ) : null}
       {phase.type === "permission" && phase.step === "feedback" ? (
         <Box borderStyle="round" borderColor={theme.accent} paddingX={1}>
-          <Text color={theme.text}>{`Tell Glue what to do instead: ${phase.feedback}`}</Text>
+          <Text {...textInk(theme, theme.text)}>{`Tell Glue what to do instead: ${phase.feedback}`}</Text>
         </Box>
       ) : null}
       {phase.type === "ask" ? (

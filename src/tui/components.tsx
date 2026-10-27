@@ -12,7 +12,7 @@ import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESC
 import { effortTrackLines } from "./effort-picker.js";
 import { footerModeLine } from "./footer.js";
 import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
-import type { Theme } from "./theme.js";
+import { textInk, type Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
 const VERBS = ["Thinking", "Pondering", "Tracing", "Sifting", "Drafting", "Checking", "Mulling", "Shaping"];
@@ -20,9 +20,9 @@ const VERBS = ["Thinking", "Pondering", "Tracing", "Sifting", "Drafting", "Check
 export function Header({ theme, model, cwd, branch }: { theme: Theme; model: string; cwd: string; branch?: string }) {
   return (
     <Text>
-      <Text color={theme.accent}>✻ </Text>
-      <Text bold color={theme.text}>Glue</Text>
-      <Text color={theme.muted}>{` ${VERSION}  ·  ${model}  ·  ${cwd}${branch ? `  ·  ${branch}` : ""}`}</Text>
+      <Text {...textInk(theme, theme.accent)}>✻ </Text>
+      <Text bold {...textInk(theme, theme.text)}>Glue</Text>
+      <Text {...textInk(theme, theme.muted)}>{` ${VERSION}  ·  ${model}  ·  ${cwd}${branch ? `  ·  ${branch}` : ""}`}</Text>
     </Text>
   );
 }
@@ -30,8 +30,8 @@ export function Header({ theme, model, cwd, branch }: { theme: Theme; model: str
 export function Welcome({ theme, profile }: { theme: Theme; profile: string }) {
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Text color={theme.text}>Glue Cli · profile {profile}</Text>
-      <Text color={theme.muted}>/help for commands · ? for shortcuts · shift+tab cycles permissions</Text>
+      <Text {...textInk(theme, theme.text)}>Glue Cli · profile {profile}</Text>
+      <Text {...textInk(theme, theme.muted)}>/help for commands · ? for shortcuts · shift+tab cycles permissions</Text>
     </Box>
   );
 }
@@ -51,8 +51,8 @@ export function TranscriptView({
         <Box key={item.id} flexDirection="column" marginTop={item.type === "user" && item.gap !== false ? 1 : 0}>
           {item.type === "user" ? <UserLine item={item} theme={theme} /> : null}
           {item.type === "assistant" ? <AssistantLine text={item.text} theme={theme} /> : null}
-          {item.type === "system" ? <Text color={theme.muted}>{item.text}</Text> : null}
-          {item.type === "error" ? <Text color={theme.bad}>{item.text}</Text> : null}
+          {item.type === "system" ? <Text {...textInk(theme, theme.muted)}>{item.text}</Text> : null}
+          {item.type === "error" ? <Text {...textInk(theme, theme.bad)}>{item.text}</Text> : null}
           {item.type === "tool" ? <ToolBlock item={item} theme={theme} expanded={expanded} /> : null}
         </Box>
       ))}
@@ -71,15 +71,15 @@ function UserLine({ item, theme }: { item: Extract<TranscriptItem, { type: "user
   const color = item.queued ? theme.muted : theme[tone.slot];
   return (
     <Box flexDirection="column">
-      <Text bold={!item.queued && tone.bold} color={color}>{`${item.queued ? "… " : "> "}${item.text}`}</Text>
-      {item.attached?.length ? <Text color={theme.muted}>{`  attached ${item.attached.join(", ")}`}</Text> : null}
+      <Text bold={!item.queued && tone.bold} {...textInk(theme, color)}>{`${item.queued ? "… " : "> "}${item.text}`}</Text>
+      {item.attached?.length ? <Text {...textInk(theme, theme.muted)}>{`  attached ${item.attached.join(", ")}`}</Text> : null}
     </Box>
   );
 }
 
 function AssistantLine({ text, theme }: { text: string; theme: Theme }) {
   const tone = transcriptTone("assistant");
-  return <Text bold={tone.bold} color={theme[tone.slot]}>{text}</Text>;
+  return <Text bold={tone.bold} {...textInk(theme, theme[tone.slot])}>{text}</Text>;
 }
 
 export function ToolBlock({
@@ -96,18 +96,18 @@ export function ToolBlock({
     <Box flexDirection="column">
       {item.showHeader === false ? null : (
         <Text>
-          <Text color={theme.accent}>⏺ </Text>
-          <Text bold color={theme.text}>{displayName(item.name)}</Text>
-          <Text color={theme.muted}>{item.target ? `(${trim(item.target, 90)})` : ""}</Text>
-          {item.status === "running" ? <Text color={theme.muted}> …</Text> : null}
+          <Text {...textInk(theme, theme.accent)}>⏺ </Text>
+          <Text bold {...textInk(theme, theme.text)}>{displayName(item.name)}</Text>
+          <Text {...textInk(theme, theme.muted)}>{item.target ? `(${trim(item.target, 90)})` : ""}</Text>
+          {item.status === "running" ? <Text {...textInk(theme, theme.muted)}> …</Text> : null}
         </Text>
       )}
-      {item.summary ? <Text color={summaryColor}>{`  ⎿  ${item.summary}`}</Text> : null}
+      {item.summary ? <Text {...textInk(theme, summaryColor)}>{`  ⎿  ${item.summary}`}</Text> : null}
       {item.diff?.length ? <DiffView lines={item.diff} theme={theme} /> : null}
       {expanded && item.detail ? (
         <Box flexDirection="column" paddingLeft={4}>
           {item.detail.split("\n").slice(0, 40).map((line, index) => (
-            <Text key={index} color={theme.muted}>{line}</Text>
+            <Text key={index} {...textInk(theme, theme.muted)}>{line}</Text>
           ))}
         </Box>
       ) : null}
@@ -120,7 +120,7 @@ function DiffView({ lines, theme }: { lines: DiffLine[]; theme: Theme }) {
   return (
     <Box flexDirection="column" paddingLeft={4}>
       {shown.map((line, index) => (
-        <Text key={index} color={line.kind === "add" ? theme.add : line.kind === "del" ? theme.del : theme.muted}>
+        <Text key={index} {...textInk(theme, line.kind === "add" ? theme.add : line.kind === "del" ? theme.del : theme.muted)}>
           {(line.kind === "add" ? "+ " : line.kind === "del" ? "- " : "  ") + line.text}
         </Text>
       ))}
@@ -132,9 +132,9 @@ export function TodoList({ todos, theme }: { todos: TodoItem[]; theme: Theme }) 
   if (!todos.length) return null;
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color={theme.muted}>Todos</Text>
+      <Text {...textInk(theme, theme.muted)}>Todos</Text>
       {todos.map((todo) => (
-        <Text key={todo.id} color={todo.status === "completed" ? theme.ok : theme.text}>
+        <Text key={todo.id} {...textInk(theme, todo.status === "completed" ? theme.ok : theme.text)}>
           {todo.status === "completed" ? "● " : todo.status === "in_progress" ? "◐ " : "○ "}
           {todo.content}
         </Text>
@@ -156,8 +156,8 @@ export function Spinner({ theme, startedAt }: { theme: Theme; startedAt: number 
   const verb = VERBS[Math.floor(now / 2000) % VERBS.length] ?? "Thinking";
   const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
   return (
-    <Text color={theme.accent}>
-      {FRAMES[frame % FRAMES.length]} {verb}… <Text color={theme.muted}>{`(${seconds}s · esc to interrupt)`}</Text>
+    <Text {...textInk(theme, theme.accent)}>
+      {FRAMES[frame % FRAMES.length]} {verb}… <Text {...textInk(theme, theme.muted)}>{`(${seconds}s · esc to interrupt)`}</Text>
     </Text>
   );
 }
@@ -196,21 +196,21 @@ export function PromptBox({
   const parts = composing ? [] : promptSegments(text, cursor, anchor, tick);
   return (
     <Box flexDirection="column" marginTop={1} flexShrink={0}>
-      {hint ? <Text color={theme.muted}>{hint}</Text> : null}
+      {hint ? <Text {...textInk(theme, theme.muted)}>{hint}</Text> : null}
       <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1} flexShrink={0}>
         <Box flexShrink={0}>
           <Text>
-            <Text color={theme.accent}>{"> "}</Text>
+            <Text {...textInk(theme, theme.accent)}>{"> "}</Text>
             {composing ? (
-              <Text underline color={theme.text}>{preedit ?? ""}</Text>
+              <Text underline {...textInk(theme, theme.text)}>{preedit ?? ""}</Text>
             ) : (
               parts.map((part, index) =>
                 part.inverse ? (
-                  <Text key={index} inverse color={theme.text}>
+                  <Text key={index} inverse {...textInk(theme, theme.text)}>
                     {part.text}
                   </Text>
                 ) : (
-                  <Text key={index} color={theme.text}>
+                  <Text key={index} {...textInk(theme, theme.text)}>
                     {part.text}
                   </Text>
                 ),
@@ -220,7 +220,7 @@ export function PromptBox({
         </Box>
         {showPlaceholder ? <Box flexGrow={1} /> : null}
         {showPlaceholder ? (
-          <Text color={theme.muted} wrap="truncate-end">{placeholder}</Text>
+          <Text {...textInk(theme, theme.muted)} wrap="truncate-end">{placeholder}</Text>
         ) : null}
       </Box>
     </Box>
@@ -247,11 +247,11 @@ export function StatusBar({
   const line = footerModeLine(mode, approval);
   return (
     <Box flexShrink={0}>
-      <Text color={approval === "auto" ? "yellow" : theme.mode[mode]}>{line}</Text>
-      {hint ? <Text color={theme.muted}>{` · ${hint}`}</Text> : null}
-      {shell ? <Text color={theme.muted}> · shell on</Text> : null}
-      {session ? <Text color={theme.muted}>{` · ${session}`}</Text> : null}
-      {goal ? <Text color={theme.muted}>{` · ${goal}`}</Text> : null}
+      <Text {...textInk(theme, approval === "auto" ? "yellow" : theme.mode[mode])}>{line}</Text>
+      {hint ? <Text {...textInk(theme, theme.muted)}>{` · ${hint}`}</Text> : null}
+      {shell ? <Text {...textInk(theme, theme.muted)}> · shell on</Text> : null}
+      {session ? <Text {...textInk(theme, theme.muted)}>{` · ${session}`}</Text> : null}
+      {goal ? <Text {...textInk(theme, theme.muted)}>{` · ${goal}`}</Text> : null}
     </Box>
   );
 }
@@ -269,7 +269,7 @@ export function CustomStatusLine({
   return (
     <Box flexDirection="column" flexShrink={0}>
       {visible.map((line, index) => (
-        <Text key={index} color={theme.muted} wrap="truncate-end">
+        <Text key={index} {...textInk(theme, theme.muted)} wrap="truncate-end">
           {line}
         </Text>
       ))}
@@ -281,7 +281,7 @@ export function ScrollMeter({ theme, label }: { theme: Theme; label: string }) {
   if (!label) return null;
   return (
     <Box flexShrink={0}>
-      <Text color={theme.muted}>{label}</Text>
+      <Text {...textInk(theme, theme.muted)}>{label}</Text>
     </Box>
   );
 }
@@ -304,11 +304,11 @@ export function CommandHelp({
   const to = start + slice.length;
   return (
     <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
-      <Text color={theme.accent}>命令</Text>
+      <Text {...textInk(theme, theme.accent)}>命令</Text>
       {slice.map((line, index) => (
-        <Text key={`${start}:${index}`} color={theme.muted}>{line || " "}</Text>
+        <Text key={`${start}:${index}`} {...textInk(theme, theme.muted)}>{line || " "}</Text>
       ))}
-      <Text color={theme.muted}>{`${from}–${to}/${lines.length}  ·  ↑↓ 滚动 · Esc 关闭 · 不可用命令只提示一行`}</Text>
+      <Text {...textInk(theme, theme.muted)}>{`${from}–${to}/${lines.length}  ·  ↑↓ 滚动 · Esc 关闭 · 不可用命令只提示一行`}</Text>
     </Box>
   );
 }
@@ -339,11 +339,11 @@ export function HelpPanel({ theme }: { theme: Theme }) {
   ];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
-      <Text color={theme.accent}>shortcuts</Text>
+      <Text {...textInk(theme, theme.accent)}>shortcuts</Text>
       {rows.map(([key, label]) => (
         <Text key={key}>
-          <Text color={theme.text}>{key.padEnd(16)}</Text>
-          <Text color={theme.muted}>{label}</Text>
+          <Text {...textInk(theme, theme.text)}>{key.padEnd(16)}</Text>
+          <Text {...textInk(theme, theme.muted)}>{label}</Text>
         </Text>
       ))}
     </Box>
@@ -371,7 +371,7 @@ export function SlashMenu({
         return (
           <Box key={`${row.name}:${index}`} flexDirection="column">
             {lines.map((line, lineIndex) => (
-              <Text key={lineIndex} color={color} wrap="truncate-end">{line}</Text>
+              <Text key={lineIndex} {...textInk(theme, color)} wrap="truncate-end">{line}</Text>
             ))}
           </Box>
         );
@@ -384,12 +384,12 @@ export function PermissionDialog({ theme, prompt, selected }: { theme: Theme; pr
   const options = ["Yes", prompt.allowLabel, "No, and tell Glue what to do differently"];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
-      <Text bold color={theme.text}>{prompt.title}</Text>
-      <Text color={theme.muted}>{trim(prompt.detail, 200)}</Text>
+      <Text bold {...textInk(theme, theme.text)}>{prompt.title}</Text>
+      <Text {...textInk(theme, theme.muted)}>{trim(prompt.detail, 200)}</Text>
       {prompt.diff?.length ? <DiffView lines={prompt.diff} theme={theme} /> : null}
-      <Text color={theme.text}>Do you want to proceed?</Text>
+      <Text {...textInk(theme, theme.text)}>Do you want to proceed?</Text>
       {options.map((option, index) => (
-        <Text key={option} color={index === selected ? theme.accent : theme.text}>
+        <Text key={option} {...textInk(theme, index === selected ? theme.accent : theme.text)}>
           {index === selected ? "❯ " : "  "}
           {index + 1}. {option}
         </Text>
@@ -417,31 +417,31 @@ export function ResumePicker({
   const count = `${matchCount} ${matchCount === 1 ? "session" : "sessions"}`;
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
-      <Text bold color={theme.text}>Resume session</Text>
-      <Text color={theme.muted}>{`${filter}  ·  ${count}`}</Text>
-      {rows.length === 0 ? <Text color={theme.muted}>No matching sessions</Text> : null}
+      <Text bold {...textInk(theme, theme.text)}>Resume session</Text>
+      <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${count}`}</Text>
+      {rows.length === 0 ? <Text {...textInk(theme, theme.muted)}>No matching sessions</Text> : null}
       {rows.map((row, index) => (
         <Box key={row.id} flexDirection="column">
-          <Text color={index === selected ? theme.accent : theme.text}>
+          <Text {...textInk(theme, index === selected ? theme.accent : theme.text)}>
             {index === selected ? "❯ " : "  "}
             {row.title}
           </Text>
-          <Text color={theme.muted}>{`    ${row.meta}`}</Text>
+          <Text {...textInk(theme, theme.muted)}>{`    ${row.meta}`}</Text>
         </Box>
       ))}
       {rows.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.muted}>preview</Text>
+          <Text {...textInk(theme, theme.muted)}>preview</Text>
           {preview.length ? (
             preview.map((line, index) => (
-              <Text key={index} color={theme.text}>{line}</Text>
+              <Text key={index} {...textInk(theme, theme.text)}>{line}</Text>
             ))
           ) : (
-            <Text color={theme.muted}>Empty session</Text>
+            <Text {...textInk(theme, theme.muted)}>Empty session</Text>
           )}
         </Box>
       ) : null}
-      <Text color={theme.muted}>↑↓ select · enter resume · esc cancel</Text>
+      <Text {...textInk(theme, theme.muted)}>↑↓ select · enter resume · esc cancel</Text>
     </Box>
   );
 }
@@ -482,22 +482,22 @@ export function ModelPicker({
   const rule = "─".repeat(Math.max(24, Math.min(columns, 88)));
   return (
     <Box flexDirection="column" flexShrink={0} marginTop={1}>
-      <Text color={theme.border}>{rule}</Text>
-      <Text bold color={theme.text}>Select model</Text>
-      <Text color={theme.muted}>Switch the model for this session. The list is the configured ids.</Text>
+      <Text {...textInk(theme, theme.border)}>{rule}</Text>
+      <Text bold {...textInk(theme, theme.text)}>Select model</Text>
+      <Text {...textInk(theme, theme.muted)}>Switch the model for this session. The list is the configured ids.</Text>
       <Box flexDirection="column" marginTop={1}>
         {entries.map((entry, index) => (
           <ModelListRow key={`${entry.number}:${entry.id}`} line={lines[index] ?? ""} entry={entry} theme={theme} />
         ))}
       </Box>
       <Box marginTop={1}>
-        <Text color={effortColor(effort, tick)}>◎ </Text>
-        <EffortWord level={effort} tick={tick} />
-        <Text bold color={effortColor(effort, tick)}> effort</Text>
-        <Text color={theme.muted}>  ←/→ to adjust</Text>
+        <Text {...textInk(theme, effortColor(effort, tick))}>◎ </Text>
+        <EffortWord theme={theme} level={effort} tick={tick} />
+        <Text bold {...textInk(theme, effortColor(effort, tick))}> effort</Text>
+        <Text {...textInk(theme, theme.muted)}>  ←/→ to adjust</Text>
       </Box>
       <Box marginTop={1}>
-        <Text color={theme.muted}>Enter to select · Esc to cancel</Text>
+        <Text {...textInk(theme, theme.muted)}>Enter to select · Esc to cancel</Text>
       </Box>
     </Box>
   );
@@ -506,15 +506,15 @@ export function ModelPicker({
 function ModelListRow({ line, entry, theme }: { line: string; entry: ModelListEntry; theme: Theme }) {
   const idAt = line.indexOf(entry.id);
   const descAt = line.lastIndexOf(entry.description);
-  if (idAt < 0 || descAt < idAt) return <Text color={theme.text}>{line}</Text>;
+  if (idAt < 0 || descAt < idAt) return <Text {...textInk(theme, theme.text)}>{line}</Text>;
   const nameColor = entry.current ? "green" : theme.text;
   const gapColor = entry.current ? "green" : theme.muted;
   return (
     <Text>
-      <Text color={entry.focused ? theme.accent : theme.muted}>{line.slice(0, idAt)}</Text>
-      <Text color={nameColor} bold={entry.current}>{entry.id}</Text>
-      <Text color={gapColor}>{line.slice(idAt + entry.id.length, descAt)}</Text>
-      <Text color={theme.muted}>{line.slice(descAt)}</Text>
+      <Text {...textInk(theme, entry.focused ? theme.accent : theme.muted)}>{line.slice(0, idAt)}</Text>
+      <Text {...textInk(theme, nameColor)} bold={entry.current}>{entry.id}</Text>
+      <Text {...textInk(theme, gapColor)}>{line.slice(idAt + entry.id.length, descAt)}</Text>
+      <Text {...textInk(theme, theme.muted)}>{line.slice(descAt)}</Text>
     </Text>
   );
 }
@@ -544,41 +544,41 @@ export function EffortPicker({
   const nameAt = lines.labels.indexOf(choice);
   return (
     <Box flexDirection="column" flexShrink={0} marginTop={1} alignItems="center">
-      <Text bold color={theme.text}>Effort</Text>
+      <Text bold {...textInk(theme, theme.text)}>Effort</Text>
       <Box marginTop={1}>
         <Box flexDirection="column">
           <Text>
-            <Text color={theme.muted}>{knob >= 0 ? lines.track.slice(0, knob) : lines.track}</Text>
-            {knob >= 0 ? <Text color={tone}>▲</Text> : null}
-            {knob >= 0 ? <Text color={theme.muted}>{lines.track.slice(knob + 1)}</Text> : null}
+            <Text {...textInk(theme, theme.muted)}>{knob >= 0 ? lines.track.slice(0, knob) : lines.track}</Text>
+            {knob >= 0 ? <Text {...textInk(theme, tone)}>▲</Text> : null}
+            {knob >= 0 ? <Text {...textInk(theme, theme.muted)}>{lines.track.slice(knob + 1)}</Text> : null}
           </Text>
-          <EffortLabels labels={lines.labels} name={choice} nameAt={nameAt} tick={tick} muted={theme.muted} />
+          <EffortLabels labels={lines.labels} name={choice} nameAt={nameAt} tick={tick} theme={theme} />
         </Box>
         <Box flexDirection="column" marginLeft={4}>
-          <Text color="#c084fc">{ultracode ? "Ultracode on" : "Ultracode off"}</Text>
-          <Text color={theme.muted}>Tab to toggle</Text>
+          <Text {...textInk(theme, "#c084fc")}>{ultracode ? "Ultracode on" : "Ultracode off"}</Text>
+          <Text {...textInk(theme, theme.muted)}>Tab to toggle</Text>
         </Box>
       </Box>
       <Box marginTop={1}>
-        <Text color={ultracode ? "#c084fc" : theme.text}>
+        <Text {...textInk(theme, ultracode ? "#c084fc" : theme.text)}>
           {ultracode ? ULTRACODE_DESCRIPTION : effortBlurb(choice)}
         </Text>
       </Box>
       {caution ? (
-        <Text color={theme.muted}>May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.</Text>
+        <Text {...textInk(theme, theme.muted)}>May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.</Text>
       ) : null}
-      <Text color={theme.muted}>←/→ to adjust · Enter to confirm · Esc to cancel</Text>
+      <Text {...textInk(theme, theme.muted)}>←/→ to adjust · Enter to confirm · Esc to cancel</Text>
     </Box>
   );
 }
 
-function EffortWord({ level, tick }: { level: string; tick: number }) {
+function EffortWord({ theme, level, tick }: { theme: Theme; level: string; tick: number }) {
   const title = effortTitle(level);
-  if (level !== "xhigh") return <Text bold color={effortColor(level, tick)}>{title}</Text>;
+  if (level !== "xhigh") return <Text bold {...textInk(theme, effortColor(level, tick))}>{title}</Text>;
   return (
     <Text bold>
       {title.split("").map((glyph, index) => (
-        <Text key={`${glyph}:${index}`} color={effortGlyphColor("xhigh", index, title.length, tick)}>{glyph}</Text>
+        <Text key={`${glyph}:${index}`} {...textInk(theme, effortGlyphColor("xhigh", index, title.length, tick))}>{glyph}</Text>
       ))}
     </Text>
   );
@@ -589,27 +589,27 @@ function EffortLabels({
   name,
   nameAt,
   tick,
-  muted,
+  theme,
 }: {
   labels: string;
   name: string;
   nameAt: number;
   tick: number;
-  muted: string;
+  theme: Theme;
 }) {
-  if (nameAt < 0) return <Text color={muted}>{labels}</Text>;
+  if (nameAt < 0) return <Text {...textInk(theme, theme.muted)}>{labels}</Text>;
   const end = nameAt + name.length;
   return (
     <Text>
-      <Text color={muted}>{labels.slice(0, nameAt)}</Text>
+      <Text {...textInk(theme, theme.muted)}>{labels.slice(0, nameAt)}</Text>
       {name === "xhigh" ? (
         name.split("").map((glyph, index) => (
-          <Text key={`${glyph}:${index}`} color={effortGlyphColor("xhigh", index, name.length, tick)}>{glyph}</Text>
+          <Text key={`${glyph}:${index}`} {...textInk(theme, effortGlyphColor("xhigh", index, name.length, tick))}>{glyph}</Text>
         ))
       ) : (
-        <Text color={effortColor(name, tick)} bold>{labels.slice(nameAt, end)}</Text>
+        <Text {...textInk(theme, effortColor(name, tick))} bold>{labels.slice(nameAt, end)}</Text>
       )}
-      <Text color={muted}>{labels.slice(end)}</Text>
+      <Text {...textInk(theme, theme.muted)}>{labels.slice(end)}</Text>
     </Text>
   );
 }
@@ -629,10 +629,10 @@ export function ChoiceDialog({
 }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
-      <Text bold color={theme.text}>{title}</Text>
-      {body ? <Text color={theme.muted}>{body}</Text> : null}
+      <Text bold {...textInk(theme, theme.text)}>{title}</Text>
+      {body ? <Text {...textInk(theme, theme.muted)}>{body}</Text> : null}
       {options.map((option, index) => (
-        <Text key={option} color={index === selected ? theme.accent : theme.text}>
+        <Text key={option} {...textInk(theme, index === selected ? theme.accent : theme.text)}>
           {index === selected ? "❯ " : "  "}
           {index + 1}. {option}
         </Text>
