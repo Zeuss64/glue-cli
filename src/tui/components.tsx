@@ -4,13 +4,14 @@ import { compactDiff } from "../diff.js";
 import { displayName } from "../render/format.js";
 import { slashRowLines, slashRowTone } from "./complete.js";
 import type { ApprovalMode } from "../permissions.js";
-import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } from "../types.js";
+import type { DiffLine, PermissionMode, TodoItem, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
-import { effortBlurb, effortColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
+import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
 import { effortTrackLines } from "./effort-picker.js";
-import { footerFields } from "./footer.js";
+import { footerModeLine } from "./footer.js";
+import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
 import type { Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
@@ -229,87 +230,28 @@ export function PromptBox({
 export function StatusBar({
   theme,
   mode,
-  usage,
   hint,
-  effort,
-  ultracode = false,
   approval = "manual",
-  model,
   goal,
-  cwd,
-  branch,
   shell,
   session,
-  contextWindow,
-  compact = false,
 }: {
   theme: Theme;
   mode: PermissionMode;
-  usage: TokenUsage;
   hint?: string;
-  effort?: string;
-  ultracode?: boolean;
   approval?: ApprovalMode;
-  model?: string;
   goal?: string;
-  cwd?: string;
-  branch?: string;
   shell?: boolean;
   session?: string;
-  contextWindow?: number;
-  /** Custom status line is showing; keep the built-in footer badges only. */
-  compact?: boolean;
 }) {
-  const bar = footerFields({
-    cwd,
-    model,
-    effort,
-    ultracode,
-    usage,
-    contextWindow,
-    mode,
-    approval,
-  });
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (effort !== "max") return;
-    const timer = setInterval(() => setTick((value) => value + 1), 160);
-    return () => clearInterval(timer);
-  }, [effort]);
-  const effortTone = effortColor(bar.effort, tick);
-  if (compact) {
-    return (
-      <Box marginTop={0} flexShrink={0}>
-        <Text color={theme.mode[mode]}>{bar.mode}</Text>
-        <Box flexGrow={1} />
-        <Text color={effortTone}>{bar.hint}</Text>
-      </Box>
-    );
-  }
+  const line = footerModeLine(mode, approval);
   return (
-    <Box flexDirection="column" marginTop={0} flexShrink={0}>
-      <Box>
-        {bar.path ? <Text color={theme.accent}>{bar.path}</Text> : null}
-        {branch ? <Text color={theme.muted}>{` ${branch}`}</Text> : null}
-        {bar.path || branch ? <Text> </Text> : null}
-        <Text color={theme.muted}>[</Text>
-        <Text color={theme.accent}>{bar.model}</Text>
-        <Text color={theme.muted}>{` (${bar.context})] `}</Text>
-        <Text color={theme.muted}>effort:</Text>
-        <Text color={effortTone}>{bar.effort}</Text>
-        <Text color={theme.ok}>{` tokens:${bar.tokens}`}</Text>
-        <Text color={theme.user}>{` ctx:${bar.ctx}`}</Text>
-        <Text color={theme.muted}>{` cache:${bar.cache}`}</Text>
-        <Box flexGrow={1} />
-        <Text color={effortTone}>{bar.hint}</Text>
-      </Box>
-      <Box>
-        <Text color={approval === "auto" ? "yellow" : theme.mode[mode]}>{bar.mode}</Text>
-        {hint ? <Text color={theme.muted}>{` · ${hint}`}</Text> : null}
-        {shell ? <Text color={theme.muted}> · shell on</Text> : null}
-        {session ? <Text color={theme.muted}>{` · ${session}`}</Text> : null}
-        {goal ? <Text color={theme.muted}>{` · ${goal}`}</Text> : null}
-      </Box>
+    <Box flexShrink={0}>
+      <Text color={approval === "auto" ? "yellow" : theme.mode[mode]}>{line}</Text>
+      {hint ? <Text color={theme.muted}>{` · ${hint}`}</Text> : null}
+      {shell ? <Text color={theme.muted}> · shell on</Text> : null}
+      {session ? <Text color={theme.muted}>{` · ${session}`}</Text> : null}
+      {goal ? <Text color={theme.muted}>{` · ${goal}`}</Text> : null}
     </Box>
   );
 }
@@ -508,38 +450,72 @@ export function ModelPicker({
   theme,
   rows,
   selected,
-  position,
   effort,
+  current,
+  start = 0,
+  columns = 72,
 }: {
   theme: Theme;
   rows: string[];
   selected: number;
-  position: string;
   effort: string;
+  /** Session model. The checkmark stays here while the caret moves. */
+  current: string;
+  /** Index of `rows[0]` in the full list. */
+  start?: number;
+  columns?: number;
 }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (effort !== "max") return;
+    if (effort !== "max" && effort !== "xhigh") return;
     const timer = setInterval(() => setTick((value) => value + 1), 160);
     return () => clearInterval(timer);
   }, [effort]);
+  const entries: ModelListEntry[] = rows.map((id, index) => ({
+    id,
+    number: start + index + 1,
+    current: id === current,
+    focused: index === selected,
+    description: modelDescription(id, current),
+  }));
+  const lines = modelListLines(entries);
+  const rule = "─".repeat(Math.max(24, Math.min(columns, 88)));
   return (
-    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+    <Box flexDirection="column" flexShrink={0} marginTop={1}>
+      <Text color={theme.border}>{rule}</Text>
       <Text bold color={theme.text}>Select model</Text>
       <Text color={theme.muted}>Switch the model for this session. The list is the configured ids.</Text>
-      <Text color={theme.muted}>{position}</Text>
-      {rows.map((row, index) => (
-        <Text key={`${row}:${index}`} color={index === selected ? theme.accent : theme.text}>
-          {index === selected ? "❯ " : "  "}
-          {row}
-        </Text>
-      ))}
-      <Text>
-        <Text color={effortColor(effort, tick)}>{`◎ ${effortTitle(effort)} effort`}</Text>
-        <Text color={theme.muted}> ←/→ to adjust</Text>
-      </Text>
-      <Text color={theme.muted}>Enter to select · Esc to cancel</Text>
+      <Box flexDirection="column" marginTop={1}>
+        {entries.map((entry, index) => (
+          <ModelListRow key={`${entry.number}:${entry.id}`} line={lines[index] ?? ""} entry={entry} theme={theme} />
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={effortColor(effort, tick)}>◎ </Text>
+        <EffortWord level={effort} tick={tick} />
+        <Text bold color={effortColor(effort, tick)}> effort</Text>
+        <Text color={theme.muted}>  ←/→ to adjust</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text color={theme.muted}>Enter to select · Esc to cancel</Text>
+      </Box>
     </Box>
+  );
+}
+
+function ModelListRow({ line, entry, theme }: { line: string; entry: ModelListEntry; theme: Theme }) {
+  const idAt = line.indexOf(entry.id);
+  const descAt = line.lastIndexOf(entry.description);
+  if (idAt < 0 || descAt < idAt) return <Text color={theme.text}>{line}</Text>;
+  const nameColor = entry.current ? "green" : theme.text;
+  const gapColor = entry.current ? "green" : theme.muted;
+  return (
+    <Text>
+      <Text color={entry.focused ? theme.accent : theme.muted}>{line.slice(0, idAt)}</Text>
+      <Text color={nameColor} bold={entry.current}>{entry.id}</Text>
+      <Text color={gapColor}>{line.slice(idAt + entry.id.length, descAt)}</Text>
+      <Text color={theme.muted}>{line.slice(descAt)}</Text>
+    </Text>
   );
 }
 
@@ -558,50 +534,83 @@ export function EffortPicker({
   const lines = effortTrackLines(levels, selected);
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (choice !== "max") return;
+    if (choice !== "max" && choice !== "xhigh") return;
     const timer = setInterval(() => setTick((value) => value + 1), 160);
     return () => clearInterval(timer);
   }, [choice]);
   const tone = effortColor(choice, tick);
   const caution = choice === "max" || ultracode;
+  const knob = lines.track.indexOf("▲");
+  const nameAt = lines.labels.indexOf(choice);
   return (
-    <Box flexDirection="column" flexShrink={0} marginTop={1}>
+    <Box flexDirection="column" flexShrink={0} marginTop={1} alignItems="center">
       <Text bold color={theme.text}>Effort</Text>
-      <Box>
-        <Box flexDirection="column" flexGrow={1}>
-          <Box>
-            <Text color={theme.muted}>Faster</Text>
-            <Box flexGrow={1} />
-            <Text color={theme.muted}>Smarter</Text>
-          </Box>
+      <Box marginTop={1}>
+        <Box flexDirection="column">
           <Text>
-            {levels.map((level, index) => {
-              const width = Math.max(level.length, 3);
-              const pad = Math.max(0, width - level.length);
-              const left = Math.floor(pad / 2);
-              const label = `${" ".repeat(left)}${level}${" ".repeat(pad - left)}`;
-              return (
-                <Text key={level} color={index === selected ? tone : theme.muted} bold={index === selected}>
-                  {index === 0 ? label : `  ${label}`}
-                </Text>
-              );
-            })}
+            <Text color={theme.muted}>{knob >= 0 ? lines.track.slice(0, knob) : lines.track}</Text>
+            {knob >= 0 ? <Text color={tone}>▲</Text> : null}
+            {knob >= 0 ? <Text color={theme.muted}>{lines.track.slice(knob + 1)}</Text> : null}
           </Text>
-          <Text color={tone}>{lines.track}</Text>
-          <Text color={ultracode ? "#c084fc" : theme.text}>
-            {ultracode ? ULTRACODE_DESCRIPTION : effortBlurb(choice)}
-          </Text>
+          <EffortLabels labels={lines.labels} name={choice} nameAt={nameAt} tick={tick} muted={theme.muted} />
         </Box>
-        <Box flexDirection="column" marginLeft={2}>
+        <Box flexDirection="column" marginLeft={4}>
           <Text color="#c084fc">{ultracode ? "Ultracode on" : "Ultracode off"}</Text>
           <Text color={theme.muted}>Tab to toggle</Text>
         </Box>
+      </Box>
+      <Box marginTop={1}>
+        <Text color={ultracode ? "#c084fc" : theme.text}>
+          {ultracode ? ULTRACODE_DESCRIPTION : effortBlurb(choice)}
+        </Text>
       </Box>
       {caution ? (
         <Text color={theme.muted}>May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.</Text>
       ) : null}
       <Text color={theme.muted}>←/→ to adjust · Enter to confirm · Esc to cancel</Text>
     </Box>
+  );
+}
+
+function EffortWord({ level, tick }: { level: string; tick: number }) {
+  const title = effortTitle(level);
+  if (level !== "xhigh") return <Text bold color={effortColor(level, tick)}>{title}</Text>;
+  return (
+    <Text bold>
+      {title.split("").map((glyph, index) => (
+        <Text key={`${glyph}:${index}`} color={effortGlyphColor("xhigh", index, title.length, tick)}>{glyph}</Text>
+      ))}
+    </Text>
+  );
+}
+
+function EffortLabels({
+  labels,
+  name,
+  nameAt,
+  tick,
+  muted,
+}: {
+  labels: string;
+  name: string;
+  nameAt: number;
+  tick: number;
+  muted: string;
+}) {
+  if (nameAt < 0) return <Text color={muted}>{labels}</Text>;
+  const end = nameAt + name.length;
+  return (
+    <Text>
+      <Text color={muted}>{labels.slice(0, nameAt)}</Text>
+      {name === "xhigh" ? (
+        name.split("").map((glyph, index) => (
+          <Text key={`${glyph}:${index}`} color={effortGlyphColor("xhigh", index, name.length, tick)}>{glyph}</Text>
+        ))
+      ) : (
+        <Text color={effortColor(name, tick)} bold>{labels.slice(nameAt, end)}</Text>
+      )}
+      <Text color={muted}>{labels.slice(end)}</Text>
+    </Text>
   );
 }
 

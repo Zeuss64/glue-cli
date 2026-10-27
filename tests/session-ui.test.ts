@@ -25,9 +25,9 @@ test("resize reflow and exit restore erase the visible frame without wiping scro
 
 test("the IME anchor sits on the caret inside the input border", () => {
   const empty = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0 });
-  assert.deepEqual(empty, { row: 26, column: 5 });
+  assert.deepEqual(empty, { row: 27, column: 5 });
   const typed = imeAnchor({ frameRows: 29, frameCols: 100, text: "ab", cursor: 2 });
-  assert.equal(typed.row, 26);
+  assert.equal(typed.row, 27);
   assert.equal(typed.column, 7);
   const han = imeAnchor({ frameRows: 29, frameCols: 80, text: "你", cursor: 1 });
   assert.equal(han.column, 7);

@@ -44,8 +44,8 @@ base_url = "https://api.openai.com/v1"
 
 ## 命令
 
-- `/model` 和 Alt+P 打开同一个界面。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。↑↓ 移动，回车选定，Esc 取消。下面一行是 `◎ <档位> effort`，←→ 改 effort。`/model <id>` 直接切换，不打开列表。Alt+P 不清掉正在输入的草稿。
-- `/effort` 回车打开滑条：左边 Faster，右边 Smarter，档位只有 low、medium、high、xhigh、max。`▲` 和当前档在同一列。每一档一种颜色，`max` 会闪色。右边是紫色的 `Ultracode on/off`，Tab 切换，不改档位。打开时文案是 `Ultracode: dynamic workflows on every task`。开关打开时系统提示用同一句，要求每个任务拆成步骤并优先用 `spawn_subagent` 分派；关掉后下一轮不再带这句，也不再提供该工具。`/effort ultracode` 只开这个开关，`/effort ultracode off` 关掉，都保留当前档。没有「仅本次会话」的第二套保存。`/effort <level>` 直接设置，`/effort status` 打印当前档位。默认页脚是路径、`[模型 (上下文)]`、`effort:`、`tokens:`、`ctx:`、`cache:` 和 `◎ 档位 · /effort`，下一行是模式和 `shift+tab`。自定义 `~/.glue` 状态栏画在这行上面。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。`GLUE_EFFORT=ultracode` 启动时档位是 `max` 且开关打开。
+- `/model` 和 Alt+P 打开同一个界面。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。界面分四层：标题、编号列表、effort、底部提示。当前模型带绿色 `✓`，焦点行是 `>`。说明文字在右侧同一列。effort 单独一行，`←/→` 只写在这一行。`Enter to select · Esc to cancel` 在再下一行。`/model <id>` 直接切换，不打开列表。Alt+P 不清掉正在输入的草稿。
+- `/effort` 回车打开居中的滑条。一条细轨道，`Faster` 和 `Smarter` 在轨道两侧，档名在轨道下面。`▲` 在当前档的正上方，只有这一档上色：low 黄、medium 绿、high 青、xhigh 紫字带白色扫光、max 保持彩色闪动。右边是紫色的 `Ultracode on/off`，Tab 切换，不改档位。打开时文案是 `Ultracode: dynamic workflows on every task`。开关打开时系统提示用同一句，要求每个任务拆成步骤并优先用 `spawn_subagent` 分派；关掉后下一轮不再带这句，也不再提供该工具。`/effort ultracode` 只开这个开关，`/effort ultracode off` 关掉，都保留当前档。没有「仅本次会话」的第二套保存。`/effort <level>` 直接设置，`/effort status` 打印当前档位。默认页脚只留模式和 `shift+tab`，不再画路径、模型、tokens、ctx、cache。自定义 `~/.glue` 状态栏仍画在这行上面。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。`GLUE_EFFORT=ultracode` 启动时档位是 `max` 且开关打开。
 - 鼠标滚轮或 PgUp 看更早的对话，PgDn 回到最新。停在最新一行时，新输出仍跟着底部。提示是 `wheel or pgup for earlier`，Windows 右侧滚动条不会跟着走。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
 - `/goal <一句话>` 记下当前目标，写入会话和 `.agent/ui.json`。`/goal clear` 清除。

@@ -13,42 +13,25 @@ import { layoutColumns } from "../src/tui/viewport.js";
 const theme = THEMES.ansi;
 
 test("status bar and permission dialog use the Glue labels", () => {
-  const status = render(
-    createElement(StatusBar, { theme, mode: "acceptEdits", usage: { input: 10, output: 2 } }),
-  );
-  assert.match(status.lastFrame() ?? "", /accept edits on/);
-  assert.match(status.lastFrame() ?? "", /tokens:10\/2/);
-  assert.match(status.lastFrame() ?? "", /shift\+tab to cycle/);
+  const status = render(createElement(StatusBar, { theme, mode: "acceptEdits" }));
+  const statusFrame = stripAnsi(status.lastFrame() ?? "");
+  assert.match(statusFrame, /accept edits on/);
+  assert.match(statusFrame, /shift\+tab to cycle/);
+  assert.doesNotMatch(statusFrame, /tokens:/);
+  assert.doesNotMatch(statusFrame, /effort:/);
+  assert.doesNotMatch(statusFrame, /ctx:/);
   status.unmount();
 
-  const effortStatus = render(
-    createElement(StatusBar, {
-      theme,
-      mode: "default",
-      usage: { input: 0, output: 0 },
-      effort: "high",
-      model: "glue-lite",
-      cwd: "D:/work",
-      contextWindow: 128000,
-    }),
-  );
+  const effortStatus = render(createElement(StatusBar, { theme, mode: "default" }));
   const effortFrame = stripAnsi(effortStatus.lastFrame() ?? "");
-  assert.match(effortFrame, /D:\/work/);
-  assert.match(effortFrame, /\[glue-lite \(128K context\)\]/);
-  assert.match(effortFrame, /effort:high/);
-  assert.match(effortFrame, /tokens:0\/0/);
-  assert.match(effortFrame, /ctx:0% \(0\/128K\)/);
-  assert.match(effortFrame, /cache:-/);
-  assert.match(effortFrame, /◎ high · \/effort/);
+  assert.match(effortFrame, /manual mode on/);
+  assert.doesNotMatch(effortFrame, /D:\/work/);
+  assert.doesNotMatch(effortFrame, /effort:/);
+  assert.doesNotMatch(effortFrame, /tokens:/);
+  assert.doesNotMatch(effortFrame, /ctx:/);
+  assert.doesNotMatch(effortFrame, /cache:/);
+  assert.doesNotMatch(effortFrame, /◎/);
   effortStatus.unmount();
-
-  const compact = render(
-    createElement(StatusBar, { theme, mode: "default", usage: { input: 10, output: 2 }, compact: true }),
-  );
-  assert.doesNotMatch(compact.lastFrame() ?? "", /tokens:/);
-  assert.match(compact.lastFrame() ?? "", /manual mode on/);
-  assert.match(compact.lastFrame() ?? "", /◎/);
-  compact.unmount();
 
   const custom = render(createElement(CustomStatusLine, { theme, lines: ["gpt-4o-mini ▓░░░░░░░░░ 8%"] }));
   assert.match(custom.lastFrame() ?? "", /gpt-4o-mini/);
@@ -163,28 +146,40 @@ test("resume picker lists a session and the keys that select it", () => {
   const models = render(
     createElement(ModelPicker, {
       theme,
-      rows: ["solo"],
-      selected: 0,
-      position: "1/1 · solo",
-      effort: "auto",
+      rows: ["solo", "other"],
+      selected: 1,
+      current: "solo",
+      start: 0,
+      effort: "low",
     }),
   );
-  const modelFrame = models.lastFrame() ?? "";
-  assert.match(modelFrame, /Select model/);
-  assert.match(modelFrame, /1\/1 · solo/);
-  assert.match(modelFrame, /❯\s+solo/);
-  assert.match(modelFrame, /Enter to select/);
-  assert.match(modelFrame, /Esc to cancel/);
-  assert.match(modelFrame, /◎ Auto effort/);
-  assert.match(modelFrame, /←\/→ to adjust/);
+  const modelLines = stripAnsi(models.lastFrame() ?? "").split("\n");
+  const soloLine = modelLines.find((line) => line.includes("solo")) ?? "";
+  const otherLine = modelLines.find((line) => line.includes("other")) ?? "";
+  const effortAt = modelLines.findIndex((line) => line.includes("Low effort"));
+  const hintAt = modelLines.findIndex((line) => line.includes("Enter to select"));
+  const soloAt = modelLines.findIndex((line) => line.includes("solo"));
+  assert.match(modelLines.join("\n"), /Select model/);
+  assert.match(modelLines.join("\n"), /configured ids/);
+  assert.match(soloLine, /1\. solo ✓/);
+  assert.match(otherLine, /> 2\. other/);
+  assert.equal(soloLine.indexOf("Current session model"), otherLine.indexOf("Configured id"));
+  const otherAt = modelLines.findIndex((line) => line.includes("other"));
+  assert.ok(otherAt > soloAt);
+  assert.equal((modelLines[otherAt + 1] ?? "").trim(), "");
+  assert.equal(effortAt, otherAt + 2);
+  assert.equal((modelLines[effortAt + 1] ?? "").trim(), "");
+  assert.equal(hintAt, effortAt + 2);
+  assert.doesNotMatch(modelLines[effortAt] ?? "", /Enter to select/);
+  assert.match(modelLines[effortAt] ?? "", /←\/→ to adjust/);
+  assert.match(modelLines[hintAt] ?? "", /Esc to cancel/);
   models.unmount();
 
-  const auto = render(
-    createElement(StatusBar, { theme, mode: "default", usage: { input: 0, output: 0 }, approval: "auto", effort: "max" }),
-  );
-  assert.match(auto.lastFrame() ?? "", /auto mode on/);
-  assert.match(auto.lastFrame() ?? "", /effort:max/);
-  assert.match(auto.lastFrame() ?? "", /shift\+tab/);
+  const auto = render(createElement(StatusBar, { theme, mode: "default", approval: "auto" }));
+  const autoFrame = stripAnsi(auto.lastFrame() ?? "");
+  assert.match(autoFrame, /auto mode on/);
+  assert.doesNotMatch(autoFrame, /effort:max/);
+  assert.match(autoFrame, /shift\+tab/);
   auto.unmount();
 
   const meter = render(createElement(ScrollMeter, { theme, label: "▴ 1–10/40  ·  滚轮或 PgUp 看更早 · PgDn 到底" }));
@@ -227,10 +222,17 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.match(pickerFrame, /Esc to cancel/);
   assert.doesNotMatch(pickerFrame, /s for this session only/);
   const pickerLines = pickerFrame.split("\n");
-  const labelLine = pickerLines.find((line) => line.includes("medium") && line.includes("xhigh")) ?? "";
-  const trackLine = pickerLines.find((line) => line.includes("▲")) ?? "";
+  const labelAt = pickerLines.findIndex((line) => line.includes("medium") && line.includes("xhigh"));
+  const trackAt = pickerLines.findIndex((line) => line.includes("▲"));
+  const labelLine = pickerLines[labelAt] ?? "";
+  const trackLine = pickerLines[trackAt] ?? "";
   const highAt = labelLine.indexOf("high");
   const knobAt = trackLine.indexOf("▲");
+  assert.ok(trackAt >= 0 && labelAt > trackAt);
+  assert.match(trackLine, /Faster/);
+  assert.match(trackLine, /Smarter/);
+  assert.equal(trackLine.split("▲").length - 1, 1);
+  assert.doesNotMatch(labelLine, /─/);
   assert.ok(highAt >= 0 && knobAt >= highAt && knobAt < highAt + "high".length);
   effort.unmount();
 
@@ -305,38 +307,16 @@ test("a selected slash row keeps one color across the command and the full descr
   view.unmount();
 });
 
-test("status bar shows context percent, window size, and cache hit when the data exists", () => {
-  const view = render(
-    createElement(StatusBar, {
-      theme,
-      mode: "default",
-      approval: "manual",
-      effort: "max",
-      model: "lite",
-      usage: { input: 1000, output: 0, cacheRead: 250 },
-      contextWindow: 128000,
-    }),
-  );
-  const frame = view.lastFrame() ?? "";
-  const flat = frame.replace(/\s+/g, " ");
-  assert.match(flat, /lite/);
-  assert.match(flat, /128K context/);
-  assert.match(flat, /effort:max/);
-  assert.match(flat, /tokens:1000\/0/);
-  assert.match(flat, /ctx:1% \(1K\/128K\)/);
-  assert.match(flat, /cache:25%/);
+test("the built-in footer is the mode line and does not print the dense status fields", () => {
+  const view = render(createElement(StatusBar, { theme, mode: "default", approval: "manual", session: "sess" }));
+  const flat = stripAnsi(view.lastFrame() ?? "").replace(/\s+/g, " ");
   assert.match(flat, /manual mode on/);
-  assert.match(flat, /◎ max · \/effort/);
+  assert.match(flat, /shift\+tab to cycle/);
+  assert.match(flat, /sess/);
+  assert.doesNotMatch(flat, /tokens:/);
+  assert.doesNotMatch(flat, /effort:/);
+  assert.doesNotMatch(flat, /ctx:/);
+  assert.doesNotMatch(flat, /cache:/);
+  assert.doesNotMatch(flat, /◎/);
   view.unmount();
-  const quiet = render(
-    createElement(StatusBar, {
-      theme,
-      mode: "default",
-      usage: { input: 0, output: 0 },
-      contextWindow: 128000,
-    }),
-  );
-  assert.match(quiet.lastFrame() ?? "", /cache:-/);
-  assert.match(quiet.lastFrame() ?? "", /tokens:0\/0/);
-  quiet.unmount();
 });

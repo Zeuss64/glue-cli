@@ -74,10 +74,33 @@ export function modelPosition(state: ModelPickerState): string {
   return `${index + 1}/${state.items.length || 1} · ${id}`;
 }
 
-export function modelWindow(items: readonly string[], selected: number, size = 8): { rows: string[]; selected: number } {
+export function modelWindow(items: readonly string[], selected: number, size = 8): { rows: string[]; selected: number; start: number } {
   const window = Math.max(1, size);
   const start = Math.max(0, Math.min(Math.max(0, selected - 1), Math.max(0, items.length - window)));
-  return { rows: items.slice(start, start + window), selected: selected - start };
+  return { rows: items.slice(start, start + window), selected: selected - start, start };
+}
+
+export interface ModelListEntry {
+  id: string;
+  /** 1-based index in the full list. */
+  number: number;
+  current: boolean;
+  focused: boolean;
+  description: string;
+}
+
+export function modelDescription(id: string, current: string): string {
+  return id === current ? "Current session model" : "Configured id";
+}
+
+/** Plain rows for the model list. Descriptions share one column. */
+export function modelListLines(entries: readonly ModelListEntry[]): string[] {
+  const nameWidth = Math.max(1, ...entries.map((entry) => entry.id.length + (entry.current ? 2 : 0)));
+  return entries.map((entry) => {
+    const caret = entry.focused ? ">" : " ";
+    const name = `${entry.id}${entry.current ? " ✓" : ""}`.padEnd(nameWidth);
+    return `${caret} ${entry.number}. ${name}  ${entry.description}`;
+  });
 }
 
 export function reduceModelPicker(

@@ -11,6 +11,8 @@ import {
   EFFORT_CYCLE,
   effortBlurb,
   effortColor,
+  effortGlyphColor,
+  xhighSweepIndex,
   effortStatusLabel,
   parseEffortCommand,
 } from "../src/effort.js";
@@ -68,12 +70,20 @@ test("ultracode maps onto max and does not replace the named levels", () => {
 });
 
 test("max effort color shimmers and the knob stays on the highlighted stop", () => {
+  assert.equal(effortColor("low", 0), "yellow");
+  assert.equal(effortColor("medium", 0), "green");
+  assert.equal(effortColor("high", 0), "cyan");
+  assert.equal(effortColor("xhigh", 0), effortColor("xhigh", 4));
   assert.notEqual(effortColor("max", 0), effortColor("max", 1));
   assert.equal(effortColor("low", 0), effortColor("low", 4));
   assert.notEqual(effortColor("low", 0), effortColor("medium", 0));
   assert.notEqual(effortColor("medium", 0), effortColor("high", 0));
   assert.notEqual(effortColor("high", 0), effortColor("xhigh", 0));
-  assert.notEqual(effortColor("xhigh", 0), effortColor("max", 0));
+  assert.notEqual(xhighSweepIndex(5, 1), xhighSweepIndex(5, 2));
+  assert.equal(effortGlyphColor("xhigh", 0, 5, 1), "#ffffff");
+  assert.equal(effortGlyphColor("xhigh", 1, 5, 1), "#e9d5ff");
+  assert.equal(effortGlyphColor("xhigh", 4, 5, 1), "#c084fc");
+  assert.equal(effortGlyphColor("low", 0, 3, 2), "yellow");
   for (let index = 0; index < EFFORT_PICKER_LEVELS.length; index += 1) {
     assert.equal(effortKnobAligned([...EFFORT_PICKER_LEVELS], index), true);
   }
