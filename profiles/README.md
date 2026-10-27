@@ -9,4 +9,4 @@ Lookup order for `--profile <name>` (or `profile` in config):
 
 Both files are concatenated when both exist. The workspace copy comes first. A profile can change vocabulary and workflow. It cannot widen the workspace sandbox or override a permission denial.
 
-`default` is the general coding profile. `cpld` is an empty stub: it has no `PROMPT.md`, so selecting it does not add domain rules. Add `profiles/cpld/PROMPT.md` later when that workflow is ready.
+`default` is the profile a normal install uses (`profile = "default"`). It loads `profiles/default/PROMPT.md`, the CPLD system prompt v0.5. `cpld` loads the same prompt from `profiles/cpld/PROMPT.md`, so `--profile cpld` matches the default.
