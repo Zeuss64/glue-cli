@@ -43,7 +43,7 @@ export function TranscriptView({
   return (
     <Box flexDirection="column">
       {items.map((item) => (
-        <Box key={item.id} flexDirection="column" marginTop={item.type === "user" ? 1 : 0}>
+        <Box key={item.id} flexDirection="column" marginTop={item.type === "user" && item.gap !== false ? 1 : 0}>
           {item.type === "user" ? <UserLine item={item} theme={theme} /> : null}
           {item.type === "assistant" ? <Text color={theme.text}>{item.text || (item.streaming ? "" : "")}</Text> : null}
           {item.type === "system" ? <Text color={theme.muted}>{item.text}</Text> : null}
@@ -79,12 +79,14 @@ export function ToolBlock({
   const summaryColor = item.status === "error" || item.status === "denied" ? theme.bad : theme.muted;
   return (
     <Box flexDirection="column">
-      <Text>
-        <Text color={theme.accent}>⏺ </Text>
-        <Text bold color={theme.text}>{displayName(item.name)}</Text>
-        <Text color={theme.muted}>{item.target ? `(${trim(item.target, 90)})` : ""}</Text>
-        {item.status === "running" ? <Text color={theme.muted}> …</Text> : null}
-      </Text>
+      {item.showHeader === false ? null : (
+        <Text>
+          <Text color={theme.accent}>⏺ </Text>
+          <Text bold color={theme.text}>{displayName(item.name)}</Text>
+          <Text color={theme.muted}>{item.target ? `(${trim(item.target, 90)})` : ""}</Text>
+          {item.status === "running" ? <Text color={theme.muted}> …</Text> : null}
+        </Text>
+      )}
       {item.summary ? <Text color={summaryColor}>{`  ⎿  ${item.summary}`}</Text> : null}
       {item.diff?.length ? <DiffView lines={item.diff} theme={theme} /> : null}
       {expanded && item.detail ? (
@@ -237,7 +239,8 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["@path", "attach a file"],
     ["/", "commands"],
     ["/model", "model list · ←→ effort"],
-    ["/effort", "low, medium, high, xhigh, max, auto"],
+    ["/effort", "←→ picker · or /effort <level>"],
+    ["pgup / wheel", "earlier messages"],
   ];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
@@ -364,6 +367,30 @@ export function ModelPicker({
         </Text>
       ))}
       <Text color={theme.muted}>{`↑↓ model · ←→ effort ${effort} · enter select · esc cancel`}</Text>
+    </Box>
+  );
+}
+
+export function EffortPicker({
+  theme,
+  levels,
+  selected,
+}: {
+  theme: Theme;
+  levels: string[];
+  selected: number;
+}) {
+  return (
+    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Text bold color={theme.text}>Effort</Text>
+      <Text>
+        {levels.map((level, index) => (
+          <Text key={level} color={index === selected ? theme.accent : theme.muted} bold={index === selected}>
+            {index === selected ? `[${level}]` : ` ${level} `}
+          </Text>
+        ))}
+      </Text>
+      <Text color={theme.muted}>← → select · enter set · esc cancel</Text>
     </Box>
   );
 }

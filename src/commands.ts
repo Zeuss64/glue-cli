@@ -36,6 +36,8 @@ export interface CommandHost {
   setModel(model: string): void;
   /** Present in the TUI. `/model` with no id opens the picker instead of printing the id. */
   openModelPicker?(): void;
+  /** Present in the TUI. `/effort` with no level opens the picker instead of printing it. */
+  openEffortPicker?(): void;
   effort?: EffortLevel;
   setEffort?(level: EffortLevel): void;
   setMode(mode: PermissionMode): void;
@@ -76,7 +78,7 @@ const CATALOG: SlashCommand[] = [
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
   { name: "model", summary: "Open the model list, or /model <id> to set one", available: true },
-  { name: "effort", summary: "Show or set effort: low, medium, high, xhigh, max, auto", available: true },
+  { name: "effort", summary: "Open the effort picker, or /effort <level> to set one", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -378,7 +380,15 @@ function applyConfig(args: string, host: CommandHost): void {
 }
 
 function applyEffort(args: string, host: CommandHost): void {
-  if (!args || args.toLowerCase() === "status") {
+  if (!args) {
+    if (host.openEffortPicker) {
+      host.openEffortPicker();
+      return;
+    }
+    host.push(`Effort: ${host.effort ?? "auto"}`);
+    return;
+  }
+  if (args.toLowerCase() === "status") {
     host.push(`Effort: ${host.effort ?? "auto"}`);
     return;
   }

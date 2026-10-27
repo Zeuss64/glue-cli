@@ -54,7 +54,9 @@ Ink calls `clearTerminal` (erase screen and scrollback) when the painted frame i
 
 On `resize`, the app reads rows and columns immediately and again after 40ms. Legacy cmd often updates the window size a moment after Alt+Enter. Listen on Ink's stdout, and also on `process.stdout` when it is a different stream. Do not enter the alternate screen (`?1049h`). A shorter frame is enough, and conhost's alternate buffer plus a scrollback clear is the freeze.
 
-The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. `visibleTranscript` tails long items to `transcriptBudget` and drops tool diff and detail when the row budget is spent. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
+The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. `transcriptWindow` paints only the visual lines that fit in `transcriptBudget`. Scroll is a line offset from the bottom: `0` follows the tail, and a larger value reaches older lines, including the start of a long reply. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
+
+Page Up and Page Down move about one screen (`pageLines`). The mouse wheel moves `WHEEL_LINES` (3) per notch. `startTui` enables SGR mouse tracking (`1000` + `1006`) so the wheel is delivered as input instead of scrolling a console buffer the next repaint overwrites. It is turned off when the session exits. Legacy conhost may ignore that request; Page Up and Page Down still move the same window. A hint line (`scrollHint`) is reserved when any lines are hidden. New output keeps the window still while it is scrolled up, and follows the tail when scroll is `0`.
 
 Fullscreen and a resized window use the same helper. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. Both still show the tail of a long reply. Cover new size rules in `tests/viewport.test.ts`.
 
@@ -64,11 +66,11 @@ Fullscreen and a resized window use the same helper. A 30-row window becomes a 2
 
 The draft `/model` (no trailing text) opens the list, including when there is only one id. Up and down move the highlight. Enter selects. Esc or Ctrl+C closes it and clears the draft. Left and right change effort and do not move the prompt cursor. `/model <id>` still calls `setModel` and does not open the list. Submitting `/model` with no id calls `openModelPicker` when the host provides it.
 
-Order is `modelChoices`: the current model, then `models` from config, then `SUGGESTED_MODELS`. Each id appears once. The position line is `N/M · id` from `modelPosition` (`2/6 · name`, or `1/1 · id` for a single row). Cover the reducer in `tests/model-picker.test.ts`.
+Order is `modelChoices`: the current model, then `models` from user or project config. Each id appears once. When `models` is empty, the list is only the current id. Do not append unrelated built-in ids on top of that. One `base_url` and key can offer several models by setting `models = ["id-a", "id-b"]` in config.toml. The position line is `N/M · id` from `modelPosition` (`2/6 · name`, or `1/1 · id` for a single row). Cover the reducer in `tests/model-picker.test.ts`.
 
 ## `/effort`
 
-Levels are `auto`, `low`, `medium`, `high`, `xhigh`, and `max` (`EFFORT_CYCLE` in `src/effort.ts`). `/effort` or `/effort status` prints the level. `/effort <level>` sets it for the session. `auto` is the model default.
+Levels are `low`, `medium`, `high`, `xhigh`, `max`, and `auto` (`EFFORT_PICKER_LEVELS` in `src/tui/effort-picker.ts`; `EFFORT_CYCLE` in `src/effort.ts` is the model-picker order and still starts at `auto`). Bare `/effort` (Enter) opens a left/right picker when the host provides `openEffortPicker`. Left and right move the highlight and stop at the ends. Enter sets the level. Esc or Ctrl+C cancels. `/effort <level>` still sets it directly and does not open the picker. `/effort status` prints the level. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
 
 The status line shows `effort <level>`. The same value is stored on the session meta and read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`.
 
@@ -92,6 +94,7 @@ Accepted bytes:
 | Ctrl+C / Ctrl+A | `\x03` / `\x01` | same |
 | Shift+Tab | `CSI Z` | scan code `\x0f` after `\x00` or `\xE0` |
 | Printable text, CJK, emoji | one insert per run of characters | same; deletion uses grapheme boundaries |
+| Mouse wheel | SGR `\x1b[<64;x;yM` up, `\x1b[<65;x;yM` down, after tracking is enabled | often no wheel bytes; Page Up (`CSI 5~` or scan code `I`) and Page Down still scroll |
 
 A scan-code prefix with no second byte yet stays in `DecodeState.pending`.
 
@@ -113,7 +116,9 @@ Extend `tests/input.test.ts` when you add a sequence. Assert both the decoded `K
 - One Backspace removes one CJK character, one emoji, or one supplementary-plane character (`\u{20000}`).
 - Ctrl+A remains "start of line".
 - `/resume` still opens the picker for other recent sessions and skips the current session and empty unnamed ones.
-- `/model` with no id still opens a list when only one model is configured. `/model <id>` still sets that id directly.
+- `/model` with no id still opens a list when only one model is configured. That list is `models` from config, or only the current id when `models` is empty. `/model <id>` still sets that id directly.
+- Bare `/effort` opens the left/right picker when `openEffortPicker` is set. `/effort <level>` still sets the level. `/effort status` still prints it.
+- Transcript scroll is visual lines from the bottom. The wheel and Page Up / Page Down move that window. Scroll `0` stays on the latest line.
 - Effort `auto` still omits `output_config` and never adds `reasoning_effort` to a chat completion.
 - `scripts/postbuild.mjs` still skips `chmod` on `win32`. Do not add a bare `chmod` to `npm run build`.
 - API keys stay out of generated config and out of commits. See the README for `~/.glue/config.toml`.

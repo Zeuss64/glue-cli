@@ -141,6 +141,26 @@ test("/model with no id opens the picker, and /effort reads and sets a level", a
   assert.match(session.lines.at(-1) ?? "", /Effort:\s+auto/);
 });
 
+test("bare /effort opens the picker when the host provides one", async () => {
+  const session = host();
+  let opened = 0;
+  session.openEffortPicker = () => {
+    opened += 1;
+  };
+  session.setEffort = (level) => {
+    session.effort = level;
+  };
+  await runSlashCommand("/effort", session);
+  assert.equal(opened, 1);
+  assert.equal(session.lines.length, 0);
+  await runSlashCommand("/effort status", session);
+  assert.match(session.lines.at(-1) ?? "", /Effort: auto/);
+  await runSlashCommand("/effort max", session);
+  assert.equal(opened, 1);
+  assert.equal(session.effort, "max");
+  assert.match(session.lines.at(-1) ?? "", /Effort set to max/);
+});
+
 test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {
   const session = host();
   assert.match(helpText(), /\/resume\s+Open the session picker, or resume an id/);

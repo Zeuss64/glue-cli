@@ -33,7 +33,9 @@ Windows 上的 `glue.cmd` 在 `npm prefix -g` 打印的目录里，不是 `bin`�
 model = "gpt-4o-mini"
 base_url = "https://api.openai.com/v1"
 # protocol = "openai"
-# models = ["gpt-4o-mini", "claude-sonnet-4-5"]
+# 同一个 base_url 和密钥可以列多个模型。/model 只显示这个列表。
+# 不写 models 时，/model 只显示上面的 model。
+# models = ["gpt-4o-mini", "gpt-4o"]
 # effort = "auto"
 ```
 
@@ -41,8 +43,9 @@ base_url = "https://api.openai.com/v1"
 
 ## 命令
 
-- `/model` 打开模型列表，只有一个模型也会打开。↑↓ 移动，回车选定，Esc 取消。←→ 改 effort。`/model <id>` 直接切换，不打开列表。
-- `/effort` 显示档位。`/effort low|medium|high|xhigh|max` 设置，`/effort auto` 回到模型默认。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
+- `/model` 打开列表。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。↑↓ 移动，回车选定，Esc 取消。←→ 改 effort。`/model <id>` 直接切换，不打开列表。
+- `/effort` 回车打开左右选择：low、medium、high、xhigh、max、auto。回车确认，Esc 取消。`/effort <level>` 直接设置，`/effort status` 打印当前档位。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
+- 鼠标滚轮、PgUp、PgDn 可以翻回更早的对话。停在最新一行时，新输出仍跟着底部。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
 
 Shift+Tab 切换权限。改文件前会确认。界面改动见 [docs/tui-hacking.md](docs/tui-hacking.md)。
@@ -58,4 +61,8 @@ Coding agent for CPLD. `glue` is an MIT-licensed terminal agent. It speaks OpenA
 
 `npm run install:global` builds and runs `npm install -g .`. On Windows, `glue.cmd` is in the directory `npm prefix -g` prints; add that directory to the user Path if needed (`%USERPROFILE%\npm-global` when the default prefix is not writable). The first session creates `~/.glue/config.toml` when it is missing and does not write an API key. Set `GLUE_API_KEY` (or `AGENT_API_KEY` / `OPENAI_API_KEY`).
 
-`/model` opens a picker even for one model. `/model <id>` sets an id directly. Left and right in the picker change effort. `/resume` opens the session picker. See [docs/tui-hacking.md](docs/tui-hacking.md).
+`/model` lists `models` from config, with the current model first and each id once. If `models` is empty, the list is only `model`, not unrelated built-in ids. One `base_url` and key can serve several models: set `models = ["id-a", "id-b"]`. `/model <id>` sets an id directly. Left and right in the model picker change effort.
+
+`/effort` opens a left/right picker for low, medium, high, xhigh, max, and auto. Enter sets the highlighted level. Esc cancels. `/effort <level>` still sets a level directly, and `/effort status` prints the current one.
+
+The mouse wheel, PgUp, and PgDn scroll to earlier messages. The view stays on the latest line until you scroll. `/resume` opens the session picker. See [docs/tui-hacking.md](docs/tui-hacking.md).
