@@ -10,7 +10,17 @@ import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
 import { formatPluginList, installPlugin, loadPlugin, listPlugins, removePlugin } from "./plugins.js";
 import { discoverSkills, formatSkillList, resolveSkill, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
-import { DESIGNED_STATUS_FIELDS, parseStatuslineRequest, parseStatuslineSpec, statuslineSpec, type StatusField } from "./statusline.js";
+import {
+  DEFAULT_SCRIPT_FIELDS,
+  DESIGNED_STATUS_FIELDS,
+  clearStatusLineConfig,
+  glueSettingsPath,
+  installStatusLine,
+  parseStatuslineRequest,
+  readStatusLineConfig,
+  type StatusField,
+  type StatusLineConfig,
+} from "./statusline.js";
 
 export interface SlashCommand {
   name: string;
@@ -42,9 +52,10 @@ export interface CommandHost {
   /** manual asks; auto allows low-risk tools and still asks for high-risk ones. */
   approval?: ApprovalMode;
   setApproval?(mode: ApprovalMode): void;
-  /** Raw `/statusline` spec. Empty means the default fields. */
-  statusline?: string;
-  setStatusline?(spec: string): void;
+  /** Custom status-line command from `~/.glue/settings.json`. */
+  statusLine?: StatusLineConfig | null;
+  /** Reload after `/statusline` writes `~/.glue/settings.json`. */
+  onStatusLineChange?(): void;
   /** Home for `~/.glue`. Tests pass a temp directory. */
   home?: string;
   activeSkill?: ActiveSkill | null;
@@ -121,7 +132,7 @@ const CATALOG: SlashCommand[] = [
   { name: "output-style", summary: "normal or concise", available: true },
   { name: "goal", summary: "Show or set a persistent goal for this session", available: true },
   { name: "auto", summary: "Auto-approve low-risk tools; high-risk still asks", available: true },
-  { name: "statusline", summary: "Design the fields under the input from a short description", available: true },
+  { name: "statusline", summary: "Generate or clear the custom status line (global ~/.glue)", available: true },
   { name: "skill", aliases: ["skills"], summary: "List skills, or /skill <name> to load one", available: true },
   { name: "plugin", summary: "Load a local skill library or install one from GitHub", available: true },
   { name: "login", summary: "Account login", available: false, note: "Glue uses an API key. Set GLUE_API_KEY, AGENT_API_KEY, or OPENAI_API_KEY." },
@@ -431,7 +442,7 @@ function applyConfig(args: string, host: CommandHost): void {
         `shell=${host.shellEnabled}`,
         `approval=${host.approval ?? "manual"}`,
         `goal=${host.goal?.trim() || ""}`,
-        `statusline=${host.statusline?.trim() || "hint,effort,tokens"}`,
+        `statusLine=${host.statusLine?.command ?? "(none)"}`,
         `protocol=${host.config.protocol}`,
         `base_url=${host.config.baseURL}`,
         `config=${host.config.configPath ?? "(defaults)"}`,
@@ -475,21 +486,8 @@ function applyConfig(args: string, host: CommandHost): void {
     }
     host.setGoal(value);
   } else if (key === "statusline") {
-    const parsed = parseStatuslineRequest(value);
-    if (parsed.kind === "show") {
-      host.push(`状态栏：${parseStatuslineSpec(host.statusline).join(" · ")}`);
-      return;
-    }
-    if (!host.setStatusline) {
-      host.push("这个会话不能保存状态栏。", "error");
-      return;
-    }
-    if (parsed.kind === "invalid") {
-      host.push("不认识这些状态栏字段。可用：hint, model, effort, tokens, context, contextSize, cache, cwd, branch, goal, shell, session。", "error");
-      return;
-    }
-    const fields = parsed.kind === "set" ? parsed.fields : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parseStatuslineSpec("");
-    host.setStatusline(statuslineSpec(fields));
+    applyStatusline(value, host);
+    return;
   } else {
     host.push(`Unknown config key ${key}`, "error");
     return;
@@ -540,33 +538,54 @@ function applyAuto(args: string, host: CommandHost): void {
 }
 
 function applyStatusline(args: string, host: CommandHost): void {
+  const home = host.home ?? homedir();
   const parsed = parseStatuslineRequest(args);
   if (parsed.kind === "show") {
-    const fields = parseStatuslineSpec(host.statusline);
-    host.push(
-      [
-        `状态栏：${fields.join(" · ")}`,
-        "右侧始终显示 manual / auto。",
-        "用法：/statusline model effort tokens，或用一句话描述，例如 /statusline 加模型、effort、token用量、上下文占用百分比、窗口大小和缓存命中率。",
-        "/statusline 设计 用更完整的一行，/statusline reset 恢复默认。",
-        "字段：hint, model, effort, tokens, context, contextSize, cache, cwd, branch, goal, shell, session。",
-        "context 是窗口占用百分比，contextSize 是窗口大小，cache 是缓存命中率（接口返回后才显示）。",
-      ].join("\n"),
-    );
+    const current = readStatusLineConfig(home);
+    host.push(current ? formatStatusLineStatus(current, home) : noStatusLineHelp());
     return;
   }
-  if (!host.setStatusline) {
-    host.push("这个会话不能保存状态栏。", "error");
-    return;
-  }
-  if (parsed.kind === "invalid") {
-    host.push("不认识这些字段。试试 /statusline model tokens，或 /statusline 加模型和上下文占用百分比。", "error");
+  if (parsed.kind === "clear") {
+    clearStatusLineConfig(home);
+    host.statusLine = null;
+    host.onStatusLineChange?.();
+    host.push(`Removed the custom status line from ${glueSettingsPath(home)}.`);
     return;
   }
   const fields: StatusField[] =
-    parsed.kind === "reset" ? [...parseStatuslineSpec("")] : parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parsed.fields;
-  host.setStatusline(statuslineSpec(fields));
-  host.push(`状态栏已设为：${fields.join(" · ")}`);
+    parsed.kind === "designed" ? [...DESIGNED_STATUS_FIELDS] : parsed.kind === "set" ? parsed.fields : [...DEFAULT_SCRIPT_FIELDS];
+  const progressBar = parsed.kind === "set" || parsed.kind === "designed" || parsed.kind === "default" ? parsed.progressBar : true;
+  const installed = installStatusLine(home, { fields, progressBar });
+  host.statusLine = installed.config;
+  host.onStatusLineChange?.();
+  host.push(
+    [
+      `Status line saved to ${installed.settingsPath}`,
+      `Script: ${installed.scriptPath}`,
+      `Fields: ${installed.fields.join(", ")}`,
+      "Glue feeds the script JSON on stdin and shows stdout above the footer.",
+      "Clear with /statusline clear (also delete / remove).",
+    ].join("\n"),
+  );
+}
+
+function formatStatusLineStatus(config: StatusLineConfig, home: string): string {
+  const interval = config.refreshInterval == null ? "off" : `${config.refreshInterval}s`;
+  return [
+    `Status line command: ${config.command}`,
+    `Settings: ${glueSettingsPath(home)}`,
+    `padding=${config.padding}  refreshInterval=${interval}`,
+    "Describe a new bar with /statusline <text>, or /statusline with no args for model + context %.",
+    "/statusline clear removes it.",
+  ].join("\n");
+}
+
+function noStatusLineHelp(): string {
+  return [
+    "No custom status line. /statusline with no args writes ~/.glue/statusline.sh and ~/.glue/settings.json (model + context %).",
+    "Example: /statusline show model name and context percentage with a progress bar",
+    "/statusline clear  /  delete  /  remove",
+  ].join("\n");
 }
 
 async function applySkill(args: string, host: CommandHost): Promise<void> {

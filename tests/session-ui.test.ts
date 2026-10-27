@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -56,16 +56,18 @@ test("statusline requests understand Chinese and English field names", () => {
   assert.equal(asked.kind, "set");
   if (asked.kind === "set") assert.deepEqual(asked.fields, ["model", "tokens"]);
   assert.equal(parseStatuslineRequest("设计").kind, "designed");
-  assert.equal(parseStatuslineRequest("reset").kind, "reset");
-  assert.equal(parseStatuslineRequest("nope").kind, "invalid");
+  assert.equal(parseStatuslineRequest("reset").kind, "default");
+  assert.equal(parseStatuslineRequest("nope").kind, "default");
+  assert.equal(parseStatuslineRequest("clear").kind, "clear");
   assert.deepEqual(parseStatuslineSpec(""), ["hint", "effort", "tokens"]);
   assert.ok(parseStatuslineSpec("设计").includes("goal"));
   const designed = parseStatuslineRequest("加当前使用模型，当前effort，token使用量，上下文窗口占用百分比，上下文窗口有多少，缓存命中率");
   assert.equal(designed.kind, "set");
   if (designed.kind === "set") {
     assert.deepEqual(designed.fields, ["model", "effort", "tokens", "context", "contextSize", "cache"]);
+    assert.equal(designed.progressBar, true);
   }
-  assert.deepEqual(parseStatuslineRequest("context window size"), { kind: "set", fields: ["contextSize"] });
+  assert.deepEqual(parseStatuslineRequest("context window size"), { kind: "set", fields: ["contextSize"], progressBar: false });
   assert.deepEqual(parseStatuslineSpec("model,effort,tokens,context,contextSize,cache"), ["model", "effort", "tokens", "context", "contextSize", "cache"]);
   const shown = formatStatusLeft(["model", "effort", "tokens", "context", "contextSize", "cache"], {
     model: "sensenova-6.8-flash-lite",
@@ -91,24 +93,27 @@ test("statusline requests understand Chinese and English field names", () => {
   assert.equal(cacheHitPercent({ input: 10, output: 1 }), undefined);
 });
 
-test("ui.json goal, approval, and statusline override project config and survive a rewrite", () => {
+test("ui.json goal and approval override project config; statusline stays in ~/.glue", () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-ui-"));
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
   const fileGoal = loadConfig({
     cwd,
     env: {},
-    home: mkdtempSync(path.join(tmpdir(), "glue-home-")),
+    home,
   });
   assert.equal(fileGoal.goal, "");
   assert.equal(fileGoal.approval, "manual");
-  writeUiSettings(cwd, { goal: "修窗口", approval: "auto", statusline: "model,tokens" });
-  const loaded = loadConfig({ cwd, env: {}, home: mkdtempSync(path.join(tmpdir(), "glue-home-")) });
+  assert.equal(fileGoal.statusLine, null);
+  writeUiSettings(cwd, { goal: "修窗口", approval: "auto" });
+  const loaded = loadConfig({ cwd, env: {}, home });
   assert.equal(loaded.goal, "修窗口");
   assert.equal(loaded.approval, "auto");
-  assert.equal(loaded.statusline, "model,tokens");
-  const fromEnv = loadConfig({ cwd, env: { GLUE_APPROVAL: "manual", GLUE_GOAL: "env goal" } });
+  assert.equal(loaded.statusLine, null);
+  const fromEnv = loadConfig({ cwd, env: { GLUE_APPROVAL: "manual", GLUE_GOAL: "env goal" }, home });
   assert.equal(fromEnv.approval, "manual");
   assert.equal(fromEnv.goal, "env goal");
   const round = readUiSettings(cwd);
   assert.equal(round.goal, "修窗口");
   assert.equal(round.approval, "auto");
+  assert.equal("statusline" in JSON.parse(readFileSync(path.join(cwd, ".agent", "ui.json"), "utf8")), false);
 });

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { render } from "ink-testing-library";
 import test from "node:test";
 import { slashRowLines, slashRowTone } from "../src/tui/complete.js";
-import { CommandHelp, EffortPicker, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
 import { THEMES } from "../src/tui/theme.js";
 
 const theme = THEMES.ansi;
@@ -21,6 +21,18 @@ test("status bar and permission dialog use the Glue labels", () => {
   );
   assert.match(effortStatus.lastFrame() ?? "", /effort high/);
   effortStatus.unmount();
+
+  const compact = render(
+    createElement(StatusBar, { theme, mode: "default", usage: { input: 10, output: 2 }, compact: true }),
+  );
+  assert.doesNotMatch(compact.lastFrame() ?? "", /12 tok/);
+  assert.match(compact.lastFrame() ?? "", /manual mode on/);
+  compact.unmount();
+
+  const custom = render(createElement(CustomStatusLine, { theme, lines: ["gpt-4o-mini ▓░░░░░░░░░ 8%"] }));
+  assert.match(custom.lastFrame() ?? "", /gpt-4o-mini/);
+  assert.match(custom.lastFrame() ?? "", /8%/);
+  custom.unmount();
 
   const dialog = render(
     createElement(PermissionDialog, {

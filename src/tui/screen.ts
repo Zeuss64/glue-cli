@@ -43,6 +43,72 @@ export function placeCursorSequence(row: number, column: number): string {
   return `\x1b[${r};${c}H`;
 }
 
+/** CUP onto the input caret and show the cursor so IME/preedit can attach. */
+export function imeCursorSequence(row: number, column: number): string {
+  return `${placeCursorSequence(row, column)}\x1b[?25h`;
+}
+
+const IME_CURSOR_CHUNK = /^\x1b\[\d+;\d+H(?:\x1b\[\?25[hl])?$/;
+
+export function isImeCursorChunk(chunk: unknown): boolean {
+  const text = chunkToText(chunk);
+  return Boolean(text) && IME_CURSOR_CHUNK.test(text);
+}
+
+/**
+ * After Ink paints, the hardware cursor sits past the last frame cell (the
+ * lower-left of the window). Patch stdout.write so each paint is followed by
+ * one CUP+show onto the input caret. IME composition is not on stdin until
+ * commit, so the cursor must already be there when the user starts composing.
+ */
+export function attachImeCursorSync(
+  stdout: { write: (...args: any[]) => any },
+  getAnchor: () => { row: number; column: number } | null,
+): () => void {
+  type Write = (...args: any[]) => any;
+  const original = stdout.write.bind(stdout) as Write;
+  let scheduled = false;
+  let active = true;
+
+  const flush = () => {
+    scheduled = false;
+    if (!active) return;
+    const anchor = getAnchor();
+    if (!anchor) return;
+    try {
+      (original as (chunk: string) => unknown)(imeCursorSequence(anchor.row, anchor.column));
+    } catch {
+      /* stdout may be closed while the process is exiting */
+    }
+  };
+
+  const schedule = () => {
+    if (!active || scheduled) return;
+    scheduled = true;
+    queueMicrotask(flush);
+  };
+
+  stdout.write = ((...args: any[]) => {
+    const result = original(...args);
+    if (!isImeCursorChunk(args[0])) schedule();
+    return result;
+  }) as Write;
+
+  schedule();
+
+  return () => {
+    active = false;
+    stdout.write = original;
+  };
+}
+
+function chunkToText(chunk: unknown): string {
+  if (typeof chunk === "string") return chunk;
+  if (Buffer.isBuffer(chunk)) return chunk.toString("utf8");
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8");
+  return "";
+}
+
 type ClearInk = () => void;
 
 let clearInk: ClearInk = () => {};

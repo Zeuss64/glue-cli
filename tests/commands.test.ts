@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { filterCommands, helpText, isImmediateCommand, presentCommandOutput, resolveSubmittedSlash, runSlashCommand, unavailableLine, type CommandHost } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
+import { glueSettingsPath, glueStatuslineScriptPath, readStatusLineConfig } from "../src/statusline.js";
 
 function host(): CommandHost & { lines: string[]; resumed: Array<string | undefined> } {
   const lines: string[] = [];
   const resumed: Array<string | undefined> = [];
   const cwd = mkdtempSync(path.join(tmpdir(), "glue-cmd-"));
-  const config = loadConfig({ cwd, env: {} });
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const config = loadConfig({ cwd, env: {}, home });
   const value: CommandHost & { lines: string[]; resumed: Array<string | undefined> } = {
     workspace: cwd,
+    home,
     config,
     model: config.model,
     permissionMode: "default",
@@ -198,18 +201,17 @@ test("unavailable samples are one line and do not append another help dump", asy
 
 test("/goal, /auto, and /statusline update the host and stay in help", async () => {
   const session = host();
+  const home = session.home ?? "";
   session.setGoal = (goal) => {
     session.goal = goal;
   };
   session.setApproval = (mode) => {
     session.approval = mode;
   };
-  session.setStatusline = (spec) => {
-    session.statusline = spec;
-  };
   assert.match(helpText(), /\/goal\s+Show or set a persistent goal/);
   assert.match(helpText(), /\/auto\s+/);
   assert.match(helpText(), /\/statusline\s+/);
+  assert.match(helpText(), /global ~\/\.glue/);
   assert.equal(isImmediateCommand("/goal"), true);
   assert.equal(isImmediateCommand("/auto"), true);
   assert.equal(isImmediateCommand("/statusline"), true);
@@ -226,24 +228,25 @@ test("/goal, /auto, and /statusline update the host and stay in help", async () 
   await runSlashCommand("/auto off", session);
   assert.equal(session.approval, "manual");
   await runSlashCommand("/statusline 模型和用量", session);
-  assert.match(session.statusline ?? "", /model/);
-  assert.match(session.statusline ?? "", /tokens/);
-  await runSlashCommand("/statusline 设计", session);
-  assert.match(session.statusline ?? "", /goal/);
-  await runSlashCommand("/statusline reset", session);
-  assert.match(session.statusline ?? "", /hint/);
+  const afterModel = readStatusLineConfig(home);
+  assert.ok(afterModel?.command);
+  assert.match(readFileSync(glueStatuslineScriptPath(home), "utf8"), /display_name/);
+  assert.equal(existsSync(path.join(session.workspace, ".agent", "ui.json")), false);
+  assert.equal(existsSync(path.join(session.workspace, ".glue", "settings.json")), false);
+  await runSlashCommand("/statusline", session);
+  assert.match(readFileSync(glueSettingsPath(home), "utf8"), /statusLine/);
+  await runSlashCommand("/statusline show", session);
+  assert.match(session.lines.at(-1) ?? "", /statusline\.sh/);
   await runSlashCommand("/statusline 加当前使用模型，当前effort，token使用量，上下文窗口占用百分比，上下文窗口有多少，缓存命中率", session);
-  assert.match(session.statusline ?? "", /model/);
-  assert.match(session.statusline ?? "", /effort/);
-  assert.match(session.statusline ?? "", /tokens/);
-  assert.match(session.statusline ?? "", /context/);
-  assert.match(session.statusline ?? "", /contextSize/);
-  assert.match(session.statusline ?? "", /cache/);
-  await runSlashCommand("/statusline model tokens", session);
-  const kept = session.statusline;
+  const rich = readFileSync(glueStatuslineScriptPath(home), "utf8");
+  assert.match(rich, /effort/);
+  assert.match(rich, /formatTok/);
+  assert.match(rich, /hit_ratio|cache/);
   await runSlashCommand("/config statusline=status", session);
-  assert.equal(session.statusline, kept);
-  assert.match(session.lines.at(-1) ?? "", /model/);
+  assert.match(session.lines.at(-1) ?? "", /Status line command/);
+  await runSlashCommand("/statusline clear", session);
+  assert.equal(readStatusLineConfig(home), null);
+  assert.match(session.lines.at(-1) ?? "", /Removed the custom status line/);
   const names = filterCommands("go").map((command) => command.name);
   assert.deepEqual(names, ["goal"]);
   const login = filterCommands("log").map((command) => command.name);

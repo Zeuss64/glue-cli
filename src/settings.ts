@@ -5,9 +5,7 @@ import { normalizeApproval, type ApprovalMode } from "./permissions.js";
 export interface UiSettings {
   goal?: string;
   approval?: ApprovalMode;
-  /** Comma-separated status fields, or a phrase `/statusline` accepts. */
-  statusline?: string;
-  seen: { goal: boolean; approval: boolean; statusline: boolean };
+  seen: { goal: boolean; approval: boolean };
 }
 
 export function uiSettingsPath(workspace: string): string {
@@ -16,11 +14,11 @@ export function uiSettingsPath(workspace: string): string {
 
 export function readUiSettings(workspace: string): UiSettings {
   const file = uiSettingsPath(workspace);
-  const empty: UiSettings = { seen: { goal: false, approval: false, statusline: false } };
+  const empty: UiSettings = { seen: { goal: false, approval: false } };
   if (!existsSync(file)) return empty;
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    const settings: UiSettings = { seen: { goal: false, approval: false, statusline: false } };
+    const settings: UiSettings = { seen: { goal: false, approval: false } };
     if ("goal" in parsed && typeof parsed.goal === "string") {
       settings.goal = parsed.goal;
       settings.seen.goal = true;
@@ -32,10 +30,6 @@ export function readUiSettings(workspace: string): UiSettings {
         settings.seen.approval = true;
       }
     }
-    if ("statusline" in parsed && typeof parsed.statusline === "string") {
-      settings.statusline = parsed.statusline;
-      settings.seen.statusline = true;
-    }
     return settings;
   } catch {
     return empty;
@@ -44,16 +38,14 @@ export function readUiSettings(workspace: string): UiSettings {
 
 export function writeUiSettings(
   workspace: string,
-  patch: { goal?: string; approval?: ApprovalMode; statusline?: string },
+  patch: { goal?: string; approval?: ApprovalMode },
 ): UiSettings {
   const current = readUiSettings(workspace);
   const next: Record<string, string> = {};
   if (current.seen.goal && current.goal !== undefined) next.goal = current.goal;
   if (current.seen.approval && current.approval) next.approval = current.approval;
-  if (current.seen.statusline && current.statusline !== undefined) next.statusline = current.statusline;
   if (patch.goal !== undefined) next.goal = patch.goal;
   if (patch.approval !== undefined) next.approval = patch.approval;
-  if (patch.statusline !== undefined) next.statusline = patch.statusline;
   const file = uiSettingsPath(workspace);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
