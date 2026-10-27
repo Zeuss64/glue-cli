@@ -7,6 +7,9 @@ export type EffortLevel = NamedEffort | "auto";
 /** Left/right order in the model picker, and the order `/effort` accepts. */
 export const EFFORT_CYCLE: readonly EffortLevel[] = ["auto", ...EFFORT_LEVELS];
 
+/** Left-to-right order in the `/effort` picker. */
+export const EFFORT_PICKER: readonly EffortLevel[] = [...EFFORT_LEVELS, "auto"];
+
 export function normalizeEffort(value: string | undefined | null): EffortLevel | undefined {
   if (!value?.trim()) return undefined;
   const name = value.trim().toLowerCase();

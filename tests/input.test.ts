@@ -187,6 +187,31 @@ test("Windows Terminal sequences and legacy conhost scan codes drive the same ed
   const rest = pushConsoleChunk(split.state, "H");
   assert.equal(rest.keys[0]?.up, true);
 
+  const wheelUp = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;8;2M");
+  assert.equal(wheelUp.keys[0]?.wheel, -1);
+  assert.equal(wheelUp.keys[0]?.input, "");
+  assert.equal(reduceEditor(emptyEditor(), wheelUp.keys[0] ?? key({})).effect, "scroll-line-up");
+  const wheelDown = pushConsoleChunk(emptyDecodeState(), "\x1b[<65;8;2M");
+  assert.equal(wheelDown.keys[0]?.wheel, 1);
+  assert.equal(reduceEditor(emptyEditor(), wheelDown.keys[0] ?? key({})).effect, "scroll-line-down");
+  const wheelCtrl = pushConsoleChunk(emptyDecodeState(), "\x1b[<80;1;1M");
+  assert.equal(wheelCtrl.keys[0]?.wheel, -1);
+  assert.equal(wheelCtrl.keys[0]?.ctrl, true);
+  assert.equal(reduceEditor(emptyEditor(), wheelCtrl.keys[0] ?? key({})).effect, "scroll-up");
+  const x10 = pushConsoleChunk(emptyDecodeState(), "\x1b[M`!!");
+  assert.equal(x10.keys[0]?.wheel, -1);
+  const click = pushConsoleChunk(emptyDecodeState(), "\x1b[<0;1;1M");
+  assert.equal(click.keys.length, 0);
+  assert.equal(apply(emptyEditor(), "\x1b[<0;1;1Mhi").text, "hi");
+  const partialWheel = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1");
+  assert.equal(partialWheel.keys.length, 0);
+  assert.equal(pushConsoleChunk(partialWheel.state, ";2M").keys[0]?.wheel, -1);
+  const pages = pushConsoleChunk(emptyDecodeState(), "\x00I\x00Q");
+  assert.equal(pages.keys[0]?.pageUp, true);
+  assert.equal(pages.keys[1]?.pageDown, true);
+  assert.equal(reduceEditor(emptyEditor(), key({ pageUp: true })).effect, "scroll-up");
+  assert.equal(reduceEditor(emptyEditor(), key({ pageDown: true })).effect, "scroll-down");
+
   const submitted = reduceEditor(apply(emptyEditor(), "hi"), key({ return: true }));
   assert.equal(submitted.effect, "submit");
   const home = reduceEditor(apply(emptyEditor(), "abcd"), key({ ctrl: true, input: "a" }));

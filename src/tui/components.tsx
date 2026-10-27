@@ -8,13 +8,14 @@ import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
 import { promptSegments } from "./caret.js";
 import type { Theme } from "./theme.js";
+import type { TranscriptRow, TranscriptTone } from "./viewport.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
 const VERBS = ["Thinking", "Pondering", "Tracing", "Sifting", "Drafting", "Checking", "Mulling", "Shaping"];
 
 export function Header({ theme, model, cwd, branch }: { theme: Theme; model: string; cwd: string; branch?: string }) {
   return (
-    <Text>
+    <Text wrap="truncate">
       <Text color={theme.accent}>✻ </Text>
       <Text bold color={theme.text}>Glue</Text>
       <Text color={theme.muted}>{` ${VERSION}  ·  ${model}  ·  ${cwd}${branch ? `  ·  ${branch}` : ""}`}</Text>
@@ -31,40 +32,29 @@ export function Welcome({ theme, profile }: { theme: Theme; profile: string }) {
   );
 }
 
-export function TranscriptView({
-  items,
-  theme,
-  expanded,
-}: {
-  items: TranscriptItem[];
-  theme: Theme;
-  expanded: boolean;
-}) {
+export function TranscriptView({ rows, theme }: { rows: TranscriptRow[]; theme: Theme }) {
   return (
     <Box flexDirection="column">
-      {items.map((item) => (
-        <Box key={item.id} flexDirection="column" marginTop={item.type === "user" ? 1 : 0}>
-          {item.type === "user" ? <UserLine item={item} theme={theme} /> : null}
-          {item.type === "assistant" ? <Text color={theme.text}>{item.text || (item.streaming ? "" : "")}</Text> : null}
-          {item.type === "system" ? <Text color={theme.muted}>{item.text}</Text> : null}
-          {item.type === "error" ? <Text color={theme.bad}>{item.text}</Text> : null}
-          {item.type === "tool" ? <ToolBlock item={item} theme={theme} expanded={expanded} /> : null}
-        </Box>
+      {rows.map((row) => (
+        <Text key={row.key} wrap="truncate">
+          {row.parts.map((part, index) => (
+            <Text key={index} color={toneColor(theme, part.tone)} bold={part.bold}>
+              {part.text}
+            </Text>
+          ))}
+        </Text>
       ))}
     </Box>
   );
 }
 
-function UserLine({ item, theme }: { item: Extract<TranscriptItem, { type: "user" }>; theme: Theme }) {
-  return (
-    <Box flexDirection="column">
-      <Text color={item.queued ? theme.muted : theme.text}>
-        <Text color={theme.accent}>{item.queued ? "… " : "> "}</Text>
-        {item.text}
-      </Text>
-      {item.attached?.length ? <Text color={theme.muted}>{`  attached ${item.attached.join(", ")}`}</Text> : null}
-    </Box>
-  );
+function toneColor(theme: Theme, tone: TranscriptTone): string {
+  if (tone === "accent") return theme.accent;
+  if (tone === "muted") return theme.muted;
+  if (tone === "bad") return theme.bad;
+  if (tone === "add") return theme.add;
+  if (tone === "del") return theme.del;
+  return theme.text;
 }
 
 export function ToolBlock({
@@ -232,12 +222,13 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["ctrl+t", "toggle the todo list"],
     ["ctrl+s", "stash the draft"],
     ["up/down", "history, or queued messages"],
+    ["pgup/wheel", "scroll to earlier messages"],
     ["! command", "run a shell command"],
     ["# note", "append to AGENT.md"],
     ["@path", "attach a file"],
     ["/", "commands"],
     ["/model", "model list · ←→ effort"],
-    ["/effort", "low, medium, high, xhigh, max, auto"],
+    ["/effort", "picker · ←→ · or /effort <level>"],
   ];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
@@ -364,6 +355,31 @@ export function ModelPicker({
         </Text>
       ))}
       <Text color={theme.muted}>{`↑↓ model · ←→ effort ${effort} · enter select · esc cancel`}</Text>
+    </Box>
+  );
+}
+
+export function EffortPicker({
+  theme,
+  levels,
+  selected,
+}: {
+  theme: Theme;
+  levels: string[];
+  selected: number;
+}) {
+  return (
+    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Text bold color={theme.text}>Effort</Text>
+      <Text>
+        {levels.map((level, index) => (
+          <Text key={level} color={index === selected ? theme.accent : theme.muted}>
+            {index === selected ? `❯ ${level}` : `  ${level}`}
+            {index === levels.length - 1 ? "" : "  "}
+          </Text>
+        ))}
+      </Text>
+      <Text color={theme.muted}>←→ select · enter apply · esc cancel</Text>
     </Box>
   );
 }

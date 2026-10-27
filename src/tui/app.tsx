@@ -6,6 +6,7 @@ import { Box, render, Text, useApp, useStdout } from "ink";
 import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "../agent/loop.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
 import { normalizeEffort, type EffortLevel } from "../effort.js";
+import { openEffortPicker as newEffortPicker, reduceEffortPicker, type EffortPickerState } from "./effort-picker.js";
 import {
   filterCommands,
   gitText,
@@ -40,9 +41,19 @@ import type { ChatMessage, FileSnap, PermissionMode, TodoItem, TokenUsage, Trans
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "./editor.js";
 import { useConsoleInput } from "./console-input.js";
 import { prevGrapheme } from "./text.js";
-import { frameSize, smallestCols, smallestRows, transcriptBudget, visibleTranscript } from "./viewport.js";
+import {
+  clampScroll,
+  contentColumns,
+  frameSize,
+  layoutTranscript,
+  smallestCols,
+  smallestRows,
+  transcriptBudget,
+  WHEEL_LINES,
+} from "./viewport.js";
 import {
   ChoiceDialog,
+  EffortPicker,
   Header,
   HelpPanel,
   ModelPicker,
@@ -101,6 +112,7 @@ type Phase =
 
 type Picker =
   | { kind: "model"; state: ModelPickerState }
+  | { kind: "effort"; state: EffortPickerState }
   | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
   | { kind: "rewind"; rows: Checkpoint[]; selected: number };
 
@@ -133,6 +145,8 @@ function App({ boot }: { boot: Boot }) {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [usage, setUsage] = useState<TokenUsage>({ input: 0, output: 0 });
   const [scroll, setScroll] = useState(0);
+  const [seenTotal, setSeenTotal] = useState(0);
+  const scrollRef = useRef({ total: 0, room: 1, page: 1 });
   const [hint, setHint] = useState("");
   const [slashIndex, setSlashIndex] = useState(0);
   const [fileIndex, setFileIndex] = useState(0);
@@ -298,6 +312,11 @@ function App({ boot }: { boot: Boot }) {
       closeModelDraft();
       commitEditor(emptyEditor(editorRef.current.vim));
       setPickerBoth({ kind: "model", state: freshModelPicker() });
+    },
+    openEffortPicker: () => {
+      closeModelDraft();
+      commitEditor(emptyEditor(editorRef.current.vim));
+      setPickerBoth({ kind: "effort", state: newEffortPicker(effortRef.current) });
     },
     setEffort: (level) => rememberEffort(level),
     setMode: (next) => {
@@ -796,7 +815,9 @@ function App({ boot }: { boot: Boot }) {
     };
     stdout?.on("resize", onResize);
     if (process.stdout !== stdout) process.stdout.on("resize", onResize);
+    process.stdout.write("\x1b[?1000h\x1b[?1006h");
     return () => {
+      process.stdout.write("\x1b[?1000l\x1b[?1006l");
       for (const timer of timers) clearTimeout(timer);
       stdout?.off("resize", onResize);
       if (process.stdout !== stdout) process.stdout.off("resize", onResize);
@@ -820,7 +841,22 @@ function App({ boot }: { boot: Boot }) {
   ]);
   const termRows = termSize.rows;
   const termCols = termSize.columns;
-  let extraLines = 0;
+  const promptHint = rev
+    ? "reverse-i-search · ctrl+r older · tab edit · enter run · esc cancel"
+    : editor.text.startsWith("!")
+      ? "shell mode · enter runs locally · esc cancels"
+      : editor.text.startsWith("#")
+        ? "memory · appends a line to AGENT.md"
+        : phase.type === "running"
+          ? "esc interrupt · enter queues a message"
+          : hint;
+  const revMatch = rev
+    ? (historyRef.current.filter((entry) => entry.includes(rev.query)).reverse()[rev.index] ?? "")
+    : "";
+  const shownHint = revMatch ? `${promptHint}\n${revMatch}` : promptHint;
+  const promptText = rev ? rev.query : editor.text;
+  let extraLines = Math.max(0, promptText.split("\n").length - 1);
+  if (shownHint) extraLines += shownHint.split("\n").length;
   if (phase.type === "running") extraLines += 1;
   if (help) extraLines += 16;
   if (showTodos && todos.length) extraLines += 1 + todos.length;
@@ -828,10 +864,12 @@ function App({ boot }: { boot: Boot }) {
   if (fileHits.length) extraLines += Math.min(6, fileHits.length);
   if (picker || modelList) extraLines += 12;
   if (phase.type === "permission" || phase.type === "ask" || phase.type === "plan") extraLines += 10;
-  const visible = useMemo(
-    () => visibleTranscript(items, scroll, termCols, transcriptBudget(termRows, extraLines), expanded),
-    [items, scroll, termCols, termRows, extraLines, expanded],
-  );
+  const contentCols = contentColumns(termCols);
+  const budget = transcriptBudget(termRows, extraLines);
+  const laid = layoutTranscript(items, contentCols, budget, scroll, expanded, seenTotal);
+  if (laid.total !== seenTotal) setSeenTotal(laid.total);
+  if (laid.scroll !== scroll) setScroll(laid.scroll);
+  scrollRef.current = { total: laid.total, room: laid.room, page: laid.page };
 
   useConsoleInput((key) => {
     handleKey(key);
@@ -977,6 +1015,22 @@ function App({ boot }: { boot: Boot }) {
       setPickerBoth(null);
       return;
     }
+    if (current.kind === "effort") {
+      const next = reduceEffortPicker(current.state, {
+        left: key.left,
+        right: key.right,
+        return: key.return,
+      });
+      if (next.effect?.type === "select") {
+        setPickerBoth(null);
+        const level = next.effect.effort;
+        rememberEffort(level);
+        system(level === "auto" ? "Effort reset to auto (model default)." : `Effort set to ${level}.`);
+        return;
+      }
+      setPickerBoth({ kind: "effort", state: next.state });
+      return;
+    }
     if (current.kind === "model") {
       const next = reduceModelPicker(current.state, {
         up: key.up,
@@ -1063,12 +1117,14 @@ function App({ boot }: { boot: Boot }) {
       setShowTodos((value) => !value);
       return;
     }
-    if (effect === "scroll-up") {
-      setScroll((value) => Math.min(itemsRef.current.length - 1, value + 2));
-      return;
-    }
-    if (effect === "scroll-down") {
-      setScroll((value) => Math.max(0, value - 2));
+    if (effect === "scroll-up" || effect === "scroll-down" || effect === "scroll-line-up" || effect === "scroll-line-down") {
+      const direction = effect === "scroll-up" || effect === "scroll-line-up" ? 1 : -1;
+      const page = effect === "scroll-up" || effect === "scroll-down";
+      setScroll((value) => {
+        const view = scrollRef.current;
+        const step = page ? view.page : WHEEL_LINES;
+        return clampScroll(value + direction * step, view.total, view.room);
+      });
       return;
     }
     if (effect === "redraw") {
@@ -1243,29 +1299,14 @@ function App({ boot }: { boot: Boot }) {
     await runTurn(text);
   }
 
-  const promptHint = rev
-    ? "reverse-i-search · ctrl+r older · tab edit · enter run · esc cancel"
-    : editor.text.startsWith("!")
-      ? "shell mode · enter runs locally · esc cancels"
-      : editor.text.startsWith("#")
-        ? "memory · appends a line to AGENT.md"
-        : phase.type === "running"
-          ? "esc interrupt · enter queues a message"
-          : hint;
-
-  const revMatch = rev
-    ? (historyRef.current.filter((entry) => entry.includes(rev.query)).reverse()[rev.index] ?? "")
-    : "";
-
   return (
-    <Box flexDirection="column" height={termRows} width={termCols} overflow="hidden">
+    <Box flexDirection="column" height={termRows} width={termCols} overflow="hidden" paddingRight={1}>
       <Box flexShrink={0}>
         <Header theme={theme} model={model} cwd={cwdLabel} branch={branch} />
       </Box>
       <Box flexGrow={1} flexShrink={1} minHeight={0} flexDirection="column" overflow="hidden" justifyContent="flex-end">
         {items.length === 0 ? <Welcome theme={theme} profile={profile} /> : null}
-        {scroll > 0 ? <Text color={theme.muted}>… pgdn for latest</Text> : null}
-        <TranscriptView items={visible} theme={theme} expanded={expanded} />
+        <TranscriptView rows={laid.rows} theme={theme} />
       </Box>
       {showTodos ? <TodoList todos={todos} theme={theme} /> : null}
       {phase.type === "running" ? <Spinner theme={theme} startedAt={spinFrom || Date.now()} /> : null}
@@ -1277,6 +1318,9 @@ function App({ boot }: { boot: Boot }) {
           options={picker.rows.map((row) => row.label)}
           selected={picker.selected}
         />
+      ) : null}
+      {picker?.kind === "effort" ? (
+        <EffortPicker theme={theme} levels={picker.state.levels} selected={picker.state.selected} />
       ) : null}
       {modelList ? (
         <ModelPicker
@@ -1343,7 +1387,7 @@ function App({ boot }: { boot: Boot }) {
         cursor={rev ? rev.query.length : editor.cursor}
         anchor={rev ? null : editor.anchor}
         placeholder={placeholder}
-        hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
+        hint={shownHint}
       />
       <StatusBar
         theme={theme}

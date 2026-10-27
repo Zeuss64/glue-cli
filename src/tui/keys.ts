@@ -116,13 +116,14 @@ export function blankKey(): KeyIn {
     right: false,
     pageUp: false,
     pageDown: false,
+    wheel: 0,
     home: false,
     end: false,
   };
 }
 
 function push(keys: KeyIn[], key: KeyIn): void {
-  if (key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
+  if (key.wheel || key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
     keys.push(key);
   }
 }
@@ -147,6 +148,10 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
   }
 
   if (second === "[") {
+    if (text.startsWith("\x1b[M")) {
+      if (text.length < 6) return { incomplete: true, length: 0 };
+      return { incomplete: false, length: 6, key: wheelKey(text.charCodeAt(3) - 32) };
+    }
     let n = 2;
     while (n < text.length && n - 2 <= 48) {
       const code = text.charCodeAt(n);
@@ -178,6 +183,12 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
 }
 
 function csiKey(body: string, final: string): KeyIn {
+  if (final === "M" || final === "m") {
+    const key = blankKey();
+    if (final === "m") return key;
+    const button = Number(body.split(";")[0]?.replace(/[^\d]/g, "") || "0");
+    return wheelKey(button, key);
+  }
   const key = blankKey();
   if (final === "Z") {
     key.tab = true;
@@ -242,6 +253,16 @@ function legacyKey(scan: string): KeyIn | undefined {
     default:
       return undefined;
   }
+  return key;
+}
+
+/** SGR button 64 is wheel up, 65 is wheel down. Modifiers live in the button bits. */
+function wheelKey(button: number, key = blankKey()): KeyIn {
+  if ((button & 64) === 0) return key;
+  key.wheel = (button & 1) === 1 ? 1 : -1;
+  key.shift = Boolean(button & 4);
+  key.meta = Boolean(button & 8);
+  key.ctrl = Boolean(button & 16);
   return key;
 }
 

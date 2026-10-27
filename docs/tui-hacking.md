@@ -16,9 +16,10 @@ After any code change, run `npm test` and `npm run typecheck` from the repositor
 | `src/tui/console-input.ts` | Subscribes to Ink's stdin `"input"` events and feeds `keys.ts`. |
 | `src/tui/text.ts` | Grapheme boundaries and display width (CJK and emoji count as two columns). |
 | `src/tui/caret.ts` | Blinking inverse-block caret and selection segments. |
-| `src/tui/viewport.ts` | Frame height, column width, and which transcript rows fit. |
+| `src/tui/viewport.ts` | Frame height, column width, and the transcript line window. |
 | `src/tui/theme.ts` | `dark`, `light`, and `ansi` color sets. |
-| `src/tui/model-picker.ts` | Model list order, `N/M` hint, and up/down/left/right reducer. |
+| `src/tui/model-picker.ts` | Model list from config, `N/M` hint, and up/down/left/right reducer. |
+| `src/tui/effort-picker.ts` | Bare `/effort` picker: left/right across low, medium, high, xhigh, max, auto. |
 | `src/effort.ts` | Effort levels and the Anthropic `output_config` helper. |
 | `src/commands.ts` | Slash commands, including `/model`, `/effort`, and `/resume`. |
 | `tests/input.test.ts` | Decoded keys and editor edits. |
@@ -54,9 +55,11 @@ Ink calls `clearTerminal` (erase screen and scrollback) when the painted frame i
 
 On `resize`, the app reads rows and columns immediately and again after 40ms. Legacy cmd often updates the window size a moment after Alt+Enter. Listen on Ink's stdout, and also on `process.stdout` when it is a different stream. Do not enter the alternate screen (`?1049h`). A shorter frame is enough, and conhost's alternate buffer plus a scrollback clear is the freeze.
 
-The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. `visibleTranscript` tails long items to `transcriptBudget` and drops tool diff and detail when the row budget is spent. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
+The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden"`. Header, prompt, and status bar use `flexShrink={0}`. The root box also has `paddingRight={1}`, and transcript text is wrapped at `contentColumns` (one less than the frame). A line that fills the last column makes conhost wrap it again, so the next paint starts too low and the header is drawn over the reply. Do not render the full history into the tree; Yoga will measure it and shrink the prompt.
 
-Fullscreen and a resized window use the same helper. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. Both still show the tail of a long reply. Cover new size rules in `tests/viewport.test.ts`.
+`layoutTranscript` in `src/tui/viewport.ts` is the on-screen window. Scroll is a line offset from the bottom: 0 follows the latest line, and Page Up / Page Down move by a page. The mouse wheel moves `WHEEL_LINES` when the terminal sends SGR (`CSI < 64` / `65`) or an X10 wheel byte. The app turns on button-event mouse tracking (`?1000h`) and SGR (`?1006h`) while it is open, and turns them off on exit. It still does not enter the alternate screen. Legacy cmd.exe often does not emit wheel bytes; Page Up and Page Down move the same window. A scroll hint inside the row budget says when earlier lines or the latest line are hidden. Growing the transcript while the user is scrolled up keeps those lines in view. Cover the window in `tests/viewport.test.ts`.
+
+Fullscreen and a resized window use the same helper. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. Both still show the tail of a long reply when scroll is 0, and Page Up reaches the start of that reply. Cover new size rules in `tests/viewport.test.ts`.
 
 ## `/model`
 
@@ -64,11 +67,11 @@ Fullscreen and a resized window use the same helper. A 30-row window becomes a 2
 
 The draft `/model` (no trailing text) opens the list, including when there is only one id. Up and down move the highlight. Enter selects. Esc or Ctrl+C closes it and clears the draft. Left and right change effort and do not move the prompt cursor. `/model <id>` still calls `setModel` and does not open the list. Submitting `/model` with no id calls `openModelPicker` when the host provides it.
 
-Order is `modelChoices`: the current model, then `models` from config, then `SUGGESTED_MODELS`. Each id appears once. The position line is `N/M · id` from `modelPosition` (`2/6 · name`, or `1/1 · id` for a single row). Cover the reducer in `tests/model-picker.test.ts`.
+Order is `modelChoices`: the current model, then `models` from config. Each id appears once. Built-in names are not added. If `models` is empty, the list is only the current model. Several ids that share one `base_url` and key are `models = ["id-a", "id-b"]`. The position line is `N/M · id` from `modelPosition` (`2/6 · name`, or `1/1 · id` for a single row). Cover the reducer in `tests/model-picker.test.ts`.
 
 ## `/effort`
 
-Levels are `auto`, `low`, `medium`, `high`, `xhigh`, and `max` (`EFFORT_CYCLE` in `src/effort.ts`). `/effort` or `/effort status` prints the level. `/effort <level>` sets it for the session. `auto` is the model default.
+Levels are `auto`, `low`, `medium`, `high`, `xhigh`, and `max` (`EFFORT_CYCLE` in `src/effort.ts`). Bare `/effort` opens the picker when the host provides `openEffortPicker`. Left and right move through `EFFORT_PICKER` (`low`, `medium`, `high`, `xhigh`, `max`, `auto`) and stop at the ends. Enter applies. Esc cancels. `/effort status` still prints the level. `/effort <level>` still sets it without the picker. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
 
 The status line shows `effort <level>`. The same value is stored on the session meta and read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`.
 
@@ -98,7 +101,7 @@ A scan-code prefix with no second byte yet stays in `DecodeState.pending`.
 Caveats that are still real:
 
 - This Linux checkout cannot drive cmd.exe or Windows Terminal. The tests feed the same bytes those consoles emit.
-- Legacy conhost does not reliably send bracketed paste or SGR mouse sequences. Do not require them.
+- Legacy conhost does not reliably send bracketed paste or SGR mouse sequences. Do not require them. Page Up and Page Down scroll the transcript when the wheel bytes never arrive.
 - Alt+Enter fullscreen can report the new size slightly late. The 40ms second read covers that; do not remove it.
 - If one size report stays large after the window was shrunk, the frame follows the smaller report on purpose.
 - The hardware cursor stays hidden. The blinking block is drawn by the prompt. Do not turn the terminal cursor back on or the two carets will disagree.

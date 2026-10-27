@@ -28,6 +28,8 @@ export interface KeyIn {
   right: boolean;
   pageUp: boolean;
   pageDown: boolean;
+  /** -1 is wheel up (earlier lines), 1 is wheel down (toward the latest line). */
+  wheel?: -1 | 0 | 1;
   home?: boolean;
   end?: boolean;
 }
@@ -44,6 +46,8 @@ export type EditorEffect =
   | "stash"
   | "scroll-up"
   | "scroll-down"
+  | "scroll-line-up"
+  | "scroll-line-down"
   | "toggle-expand"
   | "toggle-todos"
   | "redraw"
@@ -63,8 +67,10 @@ export function reduceEditor(state: EditorState, key: KeyIn): { state: EditorSta
     if (state.vim && state.vimMode === "insert") return { state: { ...state, vimMode: "normal", pending: "", anchor: null } };
     return { state, effect: "escape" };
   }
-  if (key.pageUp) return { state, effect: "scroll-up" };
-  if (key.pageDown) return { state, effect: "scroll-down" };
+  if (key.pageUp || (key.wheel === -1 && key.ctrl)) return { state, effect: "scroll-up" };
+  if (key.pageDown || (key.wheel === 1 && key.ctrl)) return { state, effect: "scroll-down" };
+  if (key.wheel === -1) return { state, effect: "scroll-line-up" };
+  if (key.wheel === 1) return { state, effect: "scroll-line-down" };
   if (key.ctrl && input === "o") return { state, effect: "toggle-expand" };
   if (key.ctrl && input === "t") return { state, effect: "toggle-todos" };
   if (key.ctrl && input === "l") return { state, effect: "redraw" };

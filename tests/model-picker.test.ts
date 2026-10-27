@@ -9,14 +9,13 @@ import {
   modelWindow,
   openModelPicker,
   reduceModelPicker,
-  SUGGESTED_MODELS,
   type ModelPickerState,
 } from "../src/tui/model-picker.js";
 
 test("one model still opens a list that can move, select, and cancel", () => {
   const state = openModelPicker("solo", [], "auto");
   const only = { ...state, items: ["solo"], selected: 0 };
-  assert.deepEqual(modelChoices("solo", [], []), ["solo"]);
+  assert.deepEqual(modelChoices("solo", []), ["solo"]);
   assert.equal(modelPosition(only), "1/1 · solo");
   assert.equal(reduceModelPicker(only, { down: true }).state.selected, 0);
   assert.equal(reduceModelPicker(only, { up: true }).state.selected, 0);
@@ -25,14 +24,19 @@ test("one model still opens a list that can move, select, and cancel", () => {
   assert.equal(reduceModelPicker(only, { ctrlC: true }).effect?.type, "cancel");
 });
 
-test("choices put the current model first, then config, then suggestions, once each", () => {
-  const items = modelChoices("gpt-4o", ["gpt-4o-mini", "gpt-4o", "  "]);
-  assert.equal(items[0], "gpt-4o");
-  assert.equal(items[1], "gpt-4o-mini");
-  assert.equal(new Set(items).size, items.length);
-  assert.ok(items.includes("claude-sonnet-4-5"));
-  assert.deepEqual(items.slice(0, 2), ["gpt-4o", "gpt-4o-mini"]);
-  for (const id of SUGGESTED_MODELS) assert.ok(items.includes(id));
+test("the list is the current model plus config, and built-ins are not added", () => {
+  assert.deepEqual(modelChoices("sensenova-6.8-flash-lite", []), ["sensenova-6.8-flash-lite"]);
+  const shared = modelChoices("sensenova-6.8-flash-lite", [
+    "sensenova-6.8-flash-lite",
+    "sensenova-6.5",
+    "  ",
+    "sensenova-6.5",
+  ]);
+  assert.deepEqual(shared, ["sensenova-6.8-flash-lite", "sensenova-6.5"]);
+  assert.equal(shared.includes("gpt-4o"), false);
+  assert.equal(shared.includes("claude-sonnet-4-5"), false);
+  assert.deepEqual(modelChoices("custom-a", ["custom-b", "custom-c"]), ["custom-a", "custom-b", "custom-c"]);
+  assert.deepEqual(openModelPicker("a", ["b", "c"], "low").items, ["a", "b", "c"]);
 });
 
 test("arrows move the highlight, left and right cycle effort, and the hint is N/M", () => {

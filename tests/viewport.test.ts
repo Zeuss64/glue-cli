@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TranscriptItem } from "../src/types.js";
-import { visualLines } from "../src/tui/text.js";
-import { fitTranscript, frameRows, frameSize, smallestRows, transcriptBudget, visibleTranscript } from "../src/tui/viewport.js";
+import { displayWidth, visualLines } from "../src/tui/text.js";
+import {
+  clampScroll,
+  contentColumns,
+  contentRoom,
+  fitTranscript,
+  frameRows,
+  frameSize,
+  HINT_EARLIER,
+  layoutTranscript,
+  retainScroll,
+  rowText,
+  smallestRows,
+  transcriptBudget,
+  visibleTranscript,
+} from "../src/tui/viewport.js";
 
 test("fullscreen and a resized window share one frame and keep the tail of a long reply", () => {
   const windowed = frameSize([{ rows: 30, columns: 100 }]);
@@ -89,4 +103,74 @@ test("wide lines and chrome shrink the transcript budget, and a tool row drops i
     assert.match(clipped[0].summary ?? "", /sum 29/);
     assert.ok(visualLines(clipped[0].summary ?? "", 40) <= 3);
   }
+});
+
+test("scroll is a line window, so the start of a long reply stays reachable", () => {
+  assert.equal(contentColumns(80), 79);
+  assert.equal(contentColumns(1), 1);
+  const text = Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n");
+  const older: TranscriptItem = { id: "old", type: "system", text: "older-msg" };
+  const item: TranscriptItem = { id: "a", type: "assistant", text };
+  const bottom = layoutTranscript([older, item], 80, 6, 0);
+  const bottomText = bottom.rows.map(rowText).join("\n");
+  assert.match(bottomText, /line 29/);
+  assert.match(bottomText, new RegExp(HINT_EARLIER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(bottom.rows.length <= 6, true);
+  assert.equal(bottom.scroll, 0);
+
+  const middle = layoutTranscript([older, item], 80, 6, 10);
+  const middleText = middle.rows.map(rowText).join("\n");
+  assert.match(middleText, /line 1[0-9]/);
+  assert.doesNotMatch(middleText, /line 29/);
+  assert.match(middleText, /pgdn/);
+  assert.equal(middle.rows.length <= 6, true);
+
+  const top = layoutTranscript([older, item], 80, 6, 10_000);
+  const topText = top.rows.map(rowText).join("\n");
+  assert.match(topText, /older-msg/);
+  assert.match(topText, /line 0/);
+  assert.match(topText, /pgdn/);
+  assert.ok(top.scroll < 10_000);
+
+  const grown = layoutTranscript([older, item, { id: "s", type: "system", text: "extra-line" }], 80, 6, middle.scroll, false, bottom.total);
+  assert.ok(grown.scroll > middle.scroll);
+  assert.equal(retainScroll(0, bottom.total, grown.total, contentRoom(grown.total, 6)), 0);
+  assert.equal(clampScroll(-3, 10, 4), 0);
+});
+
+test("a user gap is inside the row budget, and wide lines stay within the columns", () => {
+  const users: TranscriptItem[] = [
+    { id: "u1", type: "user", text: "hi" },
+    { id: "a1", type: "assistant", text: "hello" },
+    { id: "u2", type: "user", text: "next" },
+    { id: "a2", type: "assistant", text: "there" },
+  ];
+  const laid = layoutTranscript(users, 40, 4, 0);
+  assert.ok(laid.rows.length <= 4);
+  assert.match(laid.rows.map(rowText).join("\n"), /> next|> there|hello|hi/);
+
+  const wide = layoutTranscript([{ id: "w", type: "assistant", text: "你".repeat(20) }], contentColumns(10), 8, 0);
+  assert.ok(wide.rows.length <= 8);
+  for (const row of wide.rows) assert.ok(displayWidth(rowText(row)) <= contentColumns(10));
+
+  const tool = layoutTranscript(
+    [
+      {
+        id: "t",
+        type: "tool",
+        name: "edit_file",
+        target: "a.ts",
+        status: "ok",
+        summary: "updated",
+        diff: [{ kind: "add", text: "added" }],
+      },
+    ],
+    80,
+    10,
+    0,
+  );
+  const toolText = tool.rows.map(rowText).join("\n");
+  assert.match(toolText, /⏺ Edit\(a\.ts\)/);
+  assert.match(toolText, /⎿/);
+  assert.match(toolText, /\+ added/);
 });
