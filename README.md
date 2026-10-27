@@ -45,7 +45,7 @@ base_url = "https://api.openai.com/v1"
 ## 命令
 
 - `/model` 打开列表。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。↑↓ 移动，回车选定，Esc 取消。←→ 改 effort。`/model <id>` 直接切换，不打开列表。
-- `/effort` 回车打开左右选择：low、medium、high、xhigh、max、auto。Alt+P 打开同一个选择，不清掉正在输入的草稿。回车确认，Esc 取消。`/effort <level>` 直接设置，`/effort status` 打印当前档位。状态栏显示 `effort <level>`。Anthropic 在非 auto 时发送 `output_config.effort`。OpenAI Chat Completions 不附带该字段。
+- `/effort` 回车打开滑条：左边 Faster，右边 Smarter，档位是 low、medium、high、xhigh、max、ultracode、auto。当前档用方括号，轨道上的 `●` 跟着高亮。Alt+P 打开同一个滑条，不清掉正在输入的草稿。左右移动，Tab 跳到 ultracode（再按回到 max），回车确认，Esc 取消。`ultracode` 不是新的 API 档位：请求按 `max` 发送，并允许 `spawn_subagent` 派出子代理。`/effort ultracode` 打开它，`/effort ultracode off` 关掉并保留当前档。选中其它档会关掉 UltraCode。`/effort <level>` 直接设置，`/effort status` 打印当前档位。状态栏在普通档显示 `effort <level>`，UltraCode 时显示 `effort ultracode · max + subagents`。Anthropic 在非 auto 时发送 `output_config.effort`（UltraCode 为 `max`）。OpenAI Chat Completions 不附带该字段。
 - 鼠标滚轮或 PgUp 看更早的对话，PgDn 回到最新。停在最新一行时，新输出仍跟着底部。提示是 `wheel or pgup for earlier`，Windows 右侧滚动条不会跟着走。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
 - `/goal <一句话>` 记下当前目标，写入会话和 `.agent/ui.json`。`/goal clear` 清除。

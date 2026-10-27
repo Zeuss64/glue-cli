@@ -13,6 +13,8 @@ export interface SessionMeta {
   createdAt: string;
   updatedAt: string;
   effort?: string;
+  /** UltraCode: max thinking plus subagent dispatch. Absent means off. */
+  ultracode?: boolean;
   goal?: string;
   approval?: string;
   statusline?: string;
@@ -43,6 +45,7 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     createdAt: now,
     updatedAt: now,
     ...(partial.effort ? { effort: partial.effort } : {}),
+    ...(partial.ultracode ? { ultracode: true } : {}),
     ...(partial.goal !== undefined ? { goal: partial.goal } : {}),
     ...(partial.approval ? { approval: partial.approval } : {}),
     ...(partial.statusline !== undefined ? { statusline: partial.statusline } : {}),

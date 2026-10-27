@@ -1,13 +1,12 @@
-import { runAgentTurn, type PermissionChoice, type PermissionPrompt } from "./agent/loop.js";
+import { runAgentTurn, type AgentHooks, type PermissionChoice, type PermissionPrompt } from "./agent/loop.js";
+import { runSpawnedSubagent, toolsForSession } from "./agent/subagent.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "./config.js";
 import { createLlmClient } from "./llm/client.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { displayName } from "./render/format.js";
-import { formatDiffPlain } from "./render/format.js";
-import type { ToolContext } from "./tools/execute.js";
-import { toolDefinitions } from "./tools/defs.js";
-import type { ChatMessage, TokenUsage } from "./types.js";
+import { displayName, formatDiffPlain } from "./render/format.js";
 import { Sandbox } from "./sandbox.js";
+import type { ToolContext } from "./tools/execute.js";
+import type { ChatMessage, TokenUsage } from "./types.js";
 
 const orange = (s: string) => (process.env.NO_COLOR ? s : `\x1b[38;5;173m${s}\x1b[0m`);
 const dim = (s: string) => (process.env.NO_COLOR ? s : `\x1b[2m${s}\x1b[0m`);
@@ -44,71 +43,85 @@ export async function runPrint(opts: {
   const emit = (event: Record<string, unknown>) => {
     if (json) process.stdout.write(JSON.stringify(event) + "\n");
   };
+  const hooks: AgentHooks = {
+    onTextDelta(text) {
+      if (json) emit({ type: "text-delta", text });
+      else {
+        process.stdout.write(text);
+        atLineStart = text.endsWith("\n");
+      }
+    },
+    onSegmentDone() {
+      if (!json && !atLineStart) {
+        process.stdout.write("\n");
+        atLineStart = true;
+      }
+    },
+    onToolStart(event) {
+      if (json) return;
+      if (!atLineStart) process.stdout.write("\n");
+      process.stdout.write(`${orange("⏺")} ${bold(displayName(event.name))}${dim(event.target ? `(${event.target})` : "")}\n`);
+      atLineStart = true;
+    },
+    onToolEnd(event) {
+      if (json) {
+        emit({ type: "tool", name: event.name, target: event.target, status: event.denied ? "denied" : event.ok ? "ok" : "error", summary: event.summary });
+        return;
+      }
+      process.stdout.write(dim(`  ⎿  ${event.summary}\n`));
+      if (event.diff?.length) process.stdout.write(dim(formatDiffPlain(event.diff)) + "\n");
+      atLineStart = true;
+    },
+    onUsage(part) {
+      usage.input += part.input;
+      usage.output += part.output;
+    },
+    onNotice(text) {
+      if (json) emit({ type: "notice", text });
+      else process.stdout.write(dim(text) + "\n");
+    },
+    askPermission(prompt: PermissionPrompt): Promise<PermissionChoice> {
+      const hint = `Needs approval (${prompt.title}: ${prompt.target}). Print mode cannot prompt. Re-run with --permission-mode acceptEdits, an allow rule, or --dangerously-skip-permissions.`;
+      return Promise.resolve({ decision: "deny", feedback: hint });
+    },
+    askUser() {
+      return Promise.resolve("No interactive user is available. Proceed with the safest option.");
+    },
+    askPlan() {
+      return Promise.resolve({ approved: false, feedback: "Print mode cannot approve a plan. Use an interactive session or --permission-mode acceptEdits." });
+    },
+    getMode: () => opts.config.permissionMode,
+    setMode(mode) {
+      opts.config.permissionMode = mode;
+    },
+    getApproval: () => opts.config.approval,
+    getRules: () => opts.config.permissions,
+    addRule(kind, rule) {
+      opts.config.permissions[kind].push(rule);
+    },
+  };
+  if (opts.config.ultracode) {
+    ctx.spawnSubagent = (prompt, readOnly) =>
+      runSpawnedSubagent({
+        client: createLlmClient({ ...opts.config, effort: "max" }),
+        task: prompt,
+        ctx,
+        shellEnabled: opts.config.shellEnabled && !readOnly,
+        readOnly,
+        hooks,
+        maxSteps: opts.config.maxSteps,
+        workspace: opts.config.workspace,
+      });
+  }
   try {
     const result = await runAgentTurn({
       client,
       messages,
-      tools: toolDefinitions(opts.config.shellEnabled),
+      tools: toolsForSession(opts.config.shellEnabled, opts.config.ultracode),
       ctx,
       maxSteps: opts.config.maxSteps,
       readOnly: opts.readOnly,
-      hooks: {
-        onTextDelta(text) {
-          if (json) emit({ type: "text-delta", text });
-          else {
-            process.stdout.write(text);
-            atLineStart = text.endsWith("\n");
-          }
-        },
-        onSegmentDone() {
-          if (!json && !atLineStart) {
-            process.stdout.write("\n");
-            atLineStart = true;
-          }
-        },
-        onToolStart(event) {
-          if (json) return;
-          if (!atLineStart) process.stdout.write("\n");
-          process.stdout.write(`${orange("⏺")} ${bold(displayName(event.name))}${dim(event.target ? `(${event.target})` : "")}\n`);
-          atLineStart = true;
-        },
-        onToolEnd(event) {
-          if (json) {
-            emit({ type: "tool", name: event.name, target: event.target, status: event.denied ? "denied" : event.ok ? "ok" : "error", summary: event.summary });
-            return;
-          }
-          process.stdout.write(dim(`  ⎿  ${event.summary}\n`));
-          if (event.diff?.length) process.stdout.write(dim(formatDiffPlain(event.diff)) + "\n");
-          atLineStart = true;
-        },
-        onUsage(part) {
-          usage.input += part.input;
-          usage.output += part.output;
-        },
-        onNotice(text) {
-          if (json) emit({ type: "notice", text });
-          else process.stdout.write(dim(text) + "\n");
-        },
-        askPermission(prompt: PermissionPrompt): Promise<PermissionChoice> {
-          const hint = `Needs approval (${prompt.title}: ${prompt.target}). Print mode cannot prompt. Re-run with --permission-mode acceptEdits, an allow rule, or --dangerously-skip-permissions.`;
-          return Promise.resolve({ decision: "deny", feedback: hint });
-        },
-        askUser() {
-          return Promise.resolve("No interactive user is available. Proceed with the safest option.");
-        },
-        askPlan() {
-          return Promise.resolve({ approved: false, feedback: "Print mode cannot approve a plan. Use an interactive session or --permission-mode acceptEdits." });
-        },
-        getMode: () => opts.config.permissionMode,
-        setMode(mode) {
-          opts.config.permissionMode = mode;
-        },
-        getApproval: () => opts.config.approval,
-        getRules: () => opts.config.permissions,
-        addRule(kind, rule) {
-          opts.config.permissions[kind].push(rule);
-        },
-      },
+      hooks,
     });
     if (json) emit({ type: "done", aborted: result.aborted, usage });
     else if (process.stderr.isTTY && (usage.input || usage.output)) {

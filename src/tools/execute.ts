@@ -35,6 +35,11 @@ export interface ToolContext {
   signal?: AbortSignal;
   noteFile?: (filePath: string, before: string | null) => void;
   consumeBackground?: () => boolean;
+  /**
+   * Present only while UltraCode is on. Runs one subagent and returns its report.
+   * The second argument is the read-only flag.
+   */
+  spawnSubagent?: (prompt: string, readOnly: boolean) => Promise<string>;
 }
 
 export interface ToolOutcome {
@@ -62,6 +67,8 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
         return grepSearch(ctx, required(args, "pattern"), str(args, "path"), str(args, "glob"));
       case "todo_write":
         return writeTodos(ctx, args.todos);
+      case "spawn_subagent":
+        return spawnSubagent(ctx, required(args, "prompt"), bool(args, "read_only"));
       case "run_shell":
         return runShell(ctx, required(args, "command"), int(args, "timeout_ms"), bool(args, "run_in_background"));
       default:
@@ -72,6 +79,15 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     if (error instanceof Error) return fail(error.message);
     return fail(String(error));
   }
+}
+
+async function spawnSubagent(ctx: ToolContext, prompt: string, readOnly: boolean): Promise<ToolOutcome> {
+  if (!ctx.spawnSubagent) {
+    return fail("spawn_subagent is available only while UltraCode is on (max thinking + subagents).");
+  }
+  const output = await ctx.spawnSubagent(prompt, readOnly);
+  const summary = output.replace(/\s+/g, " ").trim().slice(0, 80) || "subagent finished";
+  return { ok: true, output, summary };
 }
 
 function listDir(ctx: ToolContext, userPath: string): ToolOutcome {

@@ -190,18 +190,37 @@ test("resume picker lists a session and the keys that select it", () => {
   const effort = render(
     createElement(EffortPicker, {
       theme,
-      levels: ["low", "medium", "high", "xhigh", "max", "auto"],
+      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
       selected: 2,
     }),
   );
   const effortFrame = effort.lastFrame() ?? "";
   assert.match(effortFrame, /Effort/);
+  assert.match(effortFrame, /Faster/);
+  assert.match(effortFrame, /Smarter/);
   assert.match(effortFrame, /\[high\]/);
   assert.match(effortFrame, /low/);
+  assert.match(effortFrame, /ultracode/);
   assert.match(effortFrame, /auto/);
+  assert.match(effortFrame, /●/);
+  assert.match(effortFrame, /Deeper thinking/);
+  assert.match(effortFrame, /tab UltraCode/);
   assert.match(effortFrame, /enter set/);
   assert.match(effortFrame, /esc cancel/);
   effort.unmount();
+
+  const ultra = render(
+    createElement(EffortPicker, {
+      theme,
+      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
+      selected: 5,
+    }),
+  );
+  const ultraFrame = ultra.lastFrame() ?? "";
+  assert.match(ultraFrame, /\[ultracode\]/);
+  assert.match(ultraFrame, /max thinking \+ subagent dispatch/);
+  assert.match(ultraFrame, /May use many tokens/);
+  ultra.unmount();
 });
 
 test("user lines are bold and a different color slot from the assistant body", () => {

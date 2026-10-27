@@ -10,6 +10,8 @@ import type { DiffLine, PermissionMode, TodoItem, TokenUsage, TranscriptItem } f
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
+import { effortBlurb } from "../effort.js";
+import { effortSliderTrack } from "./effort-picker.js";
 import type { Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
@@ -359,7 +361,7 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["@path", "attach a file"],
     ["/", "commands"],
     ["/model", "model list · ←→ effort"],
-    ["/effort", "←→ picker · alt+p · or /effort <level>"],
+    ["/effort", "slider · alt+p · ultracode is max + subagents"],
     ["alt+p", "open the effort picker"],
     ["pgup / wheel", "earlier messages"],
   ];
@@ -509,9 +511,17 @@ export function EffortPicker({
   levels: string[];
   selected: number;
 }) {
+  const choice = levels[selected] ?? levels[0];
+  const blurb = effortBlurb(choice);
+  const caution = choice === "max" || choice === "ultracode";
   return (
     <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
       <Text bold color={theme.text}>Effort</Text>
+      <Box>
+        <Text color={theme.muted}>Faster</Text>
+        <Box flexGrow={1} />
+        <Text color={theme.muted}>Smarter</Text>
+      </Box>
       <Text>
         {levels.map((level, index) => (
           <Text key={level} color={index === selected ? theme.accent : theme.muted} bold={index === selected}>
@@ -519,7 +529,10 @@ export function EffortPicker({
           </Text>
         ))}
       </Text>
-      <Text color={theme.muted}>← → select · enter set · esc cancel</Text>
+      <Text color={theme.accent}>{effortSliderTrack(levels.length, selected)}</Text>
+      {blurb ? <Text color={theme.text}>{blurb}</Text> : null}
+      {caution ? <Text color={theme.muted}>May use many tokens. Save it for the hardest tasks.</Text> : null}
+      <Text color={theme.muted}>←→ move · tab UltraCode · enter set · esc cancel</Text>
     </Box>
   );
 }

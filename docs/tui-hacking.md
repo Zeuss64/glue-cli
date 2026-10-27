@@ -92,9 +92,11 @@ Order is `modelChoices`: the current model, then `models` from user or project c
 
 ## `/effort`
 
-Levels are `low`, `medium`, `high`, `xhigh`, `max`, and `auto` (`EFFORT_PICKER_LEVELS` in `src/tui/effort-picker.ts`; `EFFORT_CYCLE` in `src/effort.ts` is the model-picker order and still starts at `auto`). Bare `/effort` (Enter) opens a left/right picker when the host provides `openEffortPicker`. Alt+P (`isEffortPickerShortcut`) opens the same picker and leaves the draft in the prompt. Left and right move the highlight and stop at the ends. Enter sets the level. Esc or Ctrl+C cancels. `/effort <level>` still sets it directly and does not open the picker. `/effort status` prints the level. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
+Levels are `low`, `medium`, `high`, `xhigh`, `max`, and `auto` (`EFFORT_PICKER_LEVELS` in `src/tui/effort-picker.ts`; `EFFORT_CYCLE` in `src/effort.ts` is the model-picker order and still starts at `auto`). UltraCode is an extra slider stop after `max`, not a seventh API level. Choosing it sets the API effort to `max` and turns on subagent dispatch (`spawn_subagent`). The row reads `ultracode` and the line under the knob says it is max thinking plus subagents. Tab jumps to that stop and Tab again returns to `max`. `/effort ultracode` and `/effort ultracode on` do the same. `/effort ultracode off` clears the flag and leaves the current level. Picking any named level, including `max`, turns UltraCode off. `GLUE_EFFORT=ultracode` starts a session that way.
 
-The status line shows `effort <level>`. The same value is stored on the session meta and read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`.
+The slider is the public effort layout: `Faster` on the left, `Smarter` on the right, bracketed selection chrome on the highlighted stop, a `●` knob on the track, and a one-line description. `max` and `ultracode` add the token caution. Bare `/effort` (Enter) opens that slider when the host provides `openEffortPicker`. Alt+P (`isEffortPickerShortcut`) opens the same slider and leaves the draft in the prompt. Left and right move the highlight and stop at the ends. Enter sets the stop. Esc or Ctrl+C cancels. `/effort <level>` still sets it directly and does not open the picker. `/effort status` prints the level, or `ultracode · max + subagents` while UltraCode is on. Without `openEffortPicker`, bare `/effort` prints the level. `auto` is the model default.
+
+The status line shows `effort <level>`, or `effort ultracode · max + subagents`. The API level is stored on the session meta (`effort`) with `ultracode` beside it, and is read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`. The model picker still cycles `EFFORT_CYCLE` only. Moving it clears UltraCode so the footer does not keep the subagent flag after the level changes.
 
 Anthropic requests send `output_config.effort` only when the level is not `auto`. OpenAI Chat Completions do not get `reasoning_effort`. Keep that split in `src/llm/anthropic.ts` and `src/llm/client.ts`.
 
@@ -139,7 +141,7 @@ Extend `tests/input.test.ts` when you add a sequence. Assert both the decoded `K
 - Ctrl+A remains "start of line".
 - `/resume` still opens the picker for other recent sessions and skips the current session and empty unnamed ones.
 - `/model` with no id still opens a list when only one model is configured. That list is `models` from config, or only the current id when `models` is empty. `/model <id>` still sets that id directly.
-- Bare `/effort` opens the left/right picker when `openEffortPicker` is set. `/effort <level>` still sets the level. `/effort status` still prints it.
+- Bare `/effort` opens the left/right picker when `openEffortPicker` is set. `/effort <level>` still sets the level. `/effort status` still prints it. `/effort ultracode` is max plus subagents and does not remove `low` through `auto`.
 - Transcript scroll is visual lines from the bottom. The wheel and Page Up / Page Down move that window. Scroll `0` stays on the latest line.
 - Effort `auto` still omits `output_config` and never adds `reasoning_effort` to a chat completion.
 - `scripts/postbuild.mjs` still skips `chmod` on `win32`. Do not add a bare `chmod` to `npm run build`.

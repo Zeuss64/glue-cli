@@ -12,6 +12,7 @@ export const DISPLAY_NAME: Record<string, string> = {
   ask_user: "AskUserQuestion",
   enter_plan_mode: "EnterPlanMode",
   exit_plan_mode: "ExitPlanMode",
+  spawn_subagent: "Subagent",
 };
 
 export function displayName(tool: string): string {
@@ -39,6 +40,8 @@ export function toolTarget(name: string, args: Record<string, unknown>): string 
       return typeof args.question === "string" ? args.question : "";
     case "exit_plan_mode":
       return "plan";
+    case "spawn_subagent":
+      return typeof args.prompt === "string" ? args.prompt.replace(/\s+/g, " ").slice(0, 80) : "";
     default:
       return "";
   }
