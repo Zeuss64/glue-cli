@@ -110,7 +110,7 @@ test("default and cpld load the same CPLD prompt v0.5", () => {
   });
   assert.match(prompt, /You are Glue/);
   assert.match(prompt, /Active profile: default/);
-  assert.match(prompt, /CPLD system prompt \(v0\.5\)/);
+  assert.match(prompt, /Glue CPLD profile system prompt \(v0\.5\)/);
   assert.match(prompt, /PAP_IO_LOC MUST match exactly/);
   const loaded = loadProfileText("default", cwd);
   const cpldLoaded = loadProfileText("cpld", cwd);
@@ -125,7 +125,7 @@ test("default and cpld load the same CPLD prompt v0.5", () => {
     outputStyle: "concise",
   });
   assert.match(cpld, /Active profile: cpld/);
-  assert.match(cpld, /CPLD system prompt \(v0\.5\)/);
+  assert.match(cpld, /Glue CPLD profile system prompt \(v0\.5\)/);
   assert.match(cpld, /Profile: cpld/);
 });
 
