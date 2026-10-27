@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { normalizeEffort, type EffortLevel } from "./effort.js";
+import { isUltracodeToken, normalizeEffort, type EffortLevel } from "./effort.js";
 import { resolveProtocol, type ApiProtocol } from "./llm/protocol.js";
 import { emptyRules, normalizeApproval, normalizeMode, type ApprovalMode } from "./permissions.js";
 import { readUiSettings } from "./settings.js";
@@ -32,6 +32,11 @@ export interface AppConfig {
   models: string[];
   /** `auto` omits provider effort fields. */
   effort: EffortLevel;
+  /**
+   * UltraCode pins `effort` to `max` and allows subagent dispatch.
+   * Set with `GLUE_EFFORT=ultracode` or `/effort ultracode`. Not a separate API level.
+   */
+  ultracode: boolean;
   /** Persistent goal. Empty means the user has not set one. */
   goal: string;
   /** Low-risk auto-approve. High-risk commands still ask. */
@@ -137,9 +142,7 @@ export function loadConfig(input: ConfigInput = {}): AppConfig {
     editor: str(merged, "editor") === "vim" ? "vim" : "normal",
     outputStyle: str(merged, "output_style", "outputStyle") === "concise" ? "concise" : "normal",
     models: readModels(pick(merged, "models")),
-    effort:
-      normalizeEffort(env.GLUE_EFFORT || env.AGENT_EFFORT || str(merged, "effort", "effort_level", "effortLevel")) ??
-      "auto",
+    ...readEffort(env.GLUE_EFFORT || env.AGENT_EFFORT || str(merged, "effort", "effort_level", "effortLevel")),
     goal: readGoal(env, merged, ui),
     approval: readApproval(env, merged, ui),
     statusLine: readStatusLineConfig(input.home ?? homedir()),
@@ -231,6 +234,11 @@ export function redactKey(key: string | undefined): string {
   if (!key) return "missing";
   if (key.length <= 8) return "set";
   return `set (…${key.slice(-4)})`;
+}
+
+function readEffort(raw: string | undefined): { effort: EffortLevel; ultracode: boolean } {
+  if (isUltracodeToken(raw)) return { effort: "max", ultracode: true };
+  return { effort: normalizeEffort(raw) ?? "auto", ultracode: false };
 }
 
 function readProjectConfig(workspace: string, explicit?: string): { path?: string; values: Record<string, unknown> } {

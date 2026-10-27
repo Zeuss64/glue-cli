@@ -12,6 +12,8 @@ export interface PromptParts {
   extraRoots?: string[];
   append?: string;
   goal?: string;
+  /** UltraCode: API effort is max, and spawn_subagent is available. */
+  ultracode?: boolean;
   /** Name and description only. The body loads when a skill is active. */
   skillCatalog?: Array<{ id: string; description: string }>;
   activeSkill?: { id: string; body: string };
@@ -50,6 +52,9 @@ export function buildSystemPrompt(parts: PromptParts): string {
       : "",
     parts.goal?.trim()
       ? `Current goal: ${parts.goal.trim()}\nKeep working toward this goal until it is done or the user changes it with /goal. Do not drop it for an unrelated task.`
+      : "",
+    parts.ultracode
+      ? "UltraCode is on. Think at max. You may call spawn_subagent to dispatch a subagent for an independent subtask such as a search, a review, or a bounded change. A subagent cannot dispatch another subagent. Wait for its report, then continue."
       : "",
     parts.outputStyle === "concise"
       ? "Output style: concise. Short paragraphs, no preamble, one sentence after a successful edit."

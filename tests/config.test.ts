@@ -139,7 +139,11 @@ effort = "high"
   assert.deepEqual(loose.models, ["a", "b"]);
   assert.equal(loose.effort, "auto");
   assert.equal(loadConfig({ cwd, env: { GLUE_EFFORT: "max" } }).effort, "max");
+  assert.equal(loadConfig({ cwd, env: { GLUE_EFFORT: "max" } }).ultracode, false);
   assert.equal(loadConfig({ cwd, env: {} }).effort, "high");
+  const ultra = loadConfig({ cwd, env: { GLUE_EFFORT: "ultracode" } });
+  assert.equal(ultra.effort, "max");
+  assert.equal(ultra.ultracode, true);
 });
 
 test("one base url lists every models entry, and an empty models list is only model", () => {

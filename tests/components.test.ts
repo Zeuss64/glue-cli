@@ -57,6 +57,33 @@ test("status bar and permission dialog use the Glue labels", () => {
   }
   prompt.unmount();
 
+  const placeholder = "Ask Glue to change this project";
+  const idle = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "", cursor: 0, placeholder })),
+  );
+  const idleFrame = stripAnsi(idle.lastFrame() ?? "");
+  const caretLine = idleFrame.split("\n").find((line) => line.includes(">")) ?? "";
+  assert.match(caretLine, />/);
+  assert.match(caretLine, /Ask Glue to change this project/);
+  assert.ok(caretLine.indexOf("Ask") > caretLine.indexOf(">"));
+  assert.ok(caretLine.indexOf("Ask") - caretLine.indexOf(">") > 4);
+  idle.unmount();
+
+  const composing = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "", cursor: 0, placeholder, preedit: "xiao" })),
+  );
+  const composingFrame = stripAnsi(composing.lastFrame() ?? "");
+  assert.match(composingFrame, /xiao/);
+  assert.equal(composingFrame.split("xiao").length - 1, 1);
+  assert.doesNotMatch(composingFrame, /Ask Glue/);
+  composing.unmount();
+
+  const typed = render(
+    createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "hi", cursor: 2, placeholder })),
+  );
+  assert.doesNotMatch(stripAnsi(typed.lastFrame() ?? ""), /Ask Glue/);
+  typed.unmount();
+
   const dialog = render(
     createElement(PermissionDialog, {
       theme,
@@ -163,18 +190,37 @@ test("resume picker lists a session and the keys that select it", () => {
   const effort = render(
     createElement(EffortPicker, {
       theme,
-      levels: ["low", "medium", "high", "xhigh", "max", "auto"],
+      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
       selected: 2,
     }),
   );
   const effortFrame = effort.lastFrame() ?? "";
   assert.match(effortFrame, /Effort/);
+  assert.match(effortFrame, /Faster/);
+  assert.match(effortFrame, /Smarter/);
   assert.match(effortFrame, /\[high\]/);
   assert.match(effortFrame, /low/);
+  assert.match(effortFrame, /ultracode/);
   assert.match(effortFrame, /auto/);
+  assert.match(effortFrame, /●/);
+  assert.match(effortFrame, /Deeper thinking/);
+  assert.match(effortFrame, /tab UltraCode/);
   assert.match(effortFrame, /enter set/);
   assert.match(effortFrame, /esc cancel/);
   effort.unmount();
+
+  const ultra = render(
+    createElement(EffortPicker, {
+      theme,
+      levels: ["low", "medium", "high", "xhigh", "max", "ultracode", "auto"],
+      selected: 5,
+    }),
+  );
+  const ultraFrame = ultra.lastFrame() ?? "";
+  assert.match(ultraFrame, /\[ultracode\]/);
+  assert.match(ultraFrame, /max thinking \+ subagent dispatch/);
+  assert.match(ultraFrame, /May use many tokens/);
+  ultra.unmount();
 });
 
 test("user lines are bold and a different color slot from the assistant body", () => {

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
-import { EFFORT_CYCLE, normalizeEffort, type EffortLevel } from "./effort.js";
+import { EFFORT_CYCLE, effortSetMessage, effortStatusLabel, parseEffortCommand, type EffortLevel } from "./effort.js";
 import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
@@ -68,6 +68,10 @@ export interface CommandHost {
   openEffortPicker?(): void;
   effort?: EffortLevel;
   setEffort?(level: EffortLevel): void;
+  /** UltraCode: max thinking plus subagent dispatch. Independent of the named levels. */
+  ultracode?: boolean;
+  /** On pins effort to max and enables spawn_subagent. Off leaves the current level. */
+  setUltracode?(on: boolean): void;
   setMode(mode: PermissionMode): void;
   setProfile(profile: string): void;
   setTheme(theme: "dark" | "light" | "ansi"): void;
@@ -106,7 +110,7 @@ const CATALOG: SlashCommand[] = [
   { name: "init", summary: "Write an AGENT.md for this project", available: true },
   { name: "memory", summary: "Show the project memory file", available: true },
   { name: "model", summary: "Open the model list, or /model <id> to set one", available: true },
-  { name: "effort", summary: "Open the effort picker (alt+p), or /effort <level> to set one", available: true },
+  { name: "effort", summary: "Effort slider (alt+p). Levels, or ultracode for max + subagents", available: true },
   { name: "permissions", aliases: ["allowed-tools"], summary: "Show or add allow, ask, and deny rules", available: true },
   { name: "plan", summary: "Enter plan mode, optionally with a task", available: true },
   { name: "status", summary: "Session status", available: true },
@@ -305,7 +309,7 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
           `Glue Cli ${host.sessionId}`,
           `Name:       ${host.sessionName || "(unnamed)"}`,
           `Model:      ${host.model}`,
-          `Effort:     ${host.effort ?? "auto"}`,
+          `Effort:     ${effortStatusLabel(host.effort, host.ultracode)}`,
           `Mode:       ${host.permissionMode}`,
           `Approval:   ${host.approval ?? "manual"}`,
           `Goal:       ${host.goal?.trim() || "(none)"}`,
@@ -460,12 +464,23 @@ function applyConfig(args: string, host: CommandHost): void {
   const value = args.slice(eq + 1).trim();
   if (key === "model") host.setModel(value);
   else if (key === "effort") {
-    const level = normalizeEffort(value);
-    if (!level || !host.setEffort) {
-      host.push(`Usage: /config effort=${EFFORT_CYCLE.join("|")}`, "error");
-      return;
+    const parsed = parseEffortCommand(value);
+    if (parsed.kind === "ultracode-off") {
+      host.setUltracode?.(false);
+      host.push(`UltraCode off. Effort stays ${host.effort ?? "auto"}.`);
+    } else if (parsed.kind === "set" && parsed.ultracode) {
+      if (host.setUltracode) host.setUltracode(true);
+      else if (host.setEffort) host.setEffort("max");
+      else {
+        host.push(`Usage: /config effort=${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
+        return;
+      }
+      host.push(effortSetMessage(parsed));
+    } else if (parsed.kind === "set" && host.setEffort) {
+      host.setEffort(parsed.effort);
+    } else {
+      host.push(`Usage: /config effort=${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
     }
-    host.setEffort(level);
   } else if (key === "permission_mode" || key === "mode") host.setMode(normalizeMode(value));
   else if (key === "profile") host.setProfile(value);
   else if (key === "theme" && (value === "dark" || value === "light" || value === "ansi")) host.setTheme(value);
@@ -674,25 +689,38 @@ function applyPlugin(args: string, host: CommandHost): void {
 }
 
 function applyEffort(args: string, host: CommandHost): void {
-  if (!args) {
+  const parsed = parseEffortCommand(args);
+  if (parsed.kind === "picker") {
     if (host.openEffortPicker) {
       host.openEffortPicker();
       return;
     }
-    host.push(`Effort: ${host.effort ?? "auto"}`);
+    host.push(`Effort: ${effortStatusLabel(host.effort, host.ultracode)}`);
     return;
   }
-  if (args.toLowerCase() === "status") {
-    host.push(`Effort: ${host.effort ?? "auto"}`);
+  if (parsed.kind === "status") {
+    host.push(`Effort: ${effortStatusLabel(host.effort, host.ultracode)}`);
     return;
   }
-  const level = normalizeEffort(args);
-  if (!level || !host.setEffort) {
-    host.push(`Usage: /effort ${EFFORT_CYCLE.join("|")}`, "error");
+  if (parsed.kind === "ultracode-off") {
+    host.setUltracode?.(false);
+    host.push(`UltraCode off. Effort stays ${host.effort ?? "auto"}.`);
     return;
   }
-  host.setEffort(level);
-  host.push(level === "auto" ? "Effort reset to auto (model default)." : `Effort set to ${level}.`);
+  if (parsed.kind === "set") {
+    if (parsed.ultracode) {
+      if (host.setUltracode) host.setUltracode(true);
+      else host.setEffort?.("max");
+    } else if (host.setEffort) {
+      host.setEffort(parsed.effort);
+    } else {
+      host.push(`Usage: /effort ${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
+      return;
+    }
+    host.push(effortSetMessage(parsed));
+    return;
+  }
+  host.push(`Usage: /effort ${[...EFFORT_CYCLE, "ultracode"].join("|")}`, "error");
 }
 
 function applyPermissions(args: string, host: CommandHost): void {

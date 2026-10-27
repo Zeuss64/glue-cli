@@ -164,6 +164,35 @@ test("bare /effort opens the picker when the host provides one", async () => {
   assert.match(session.lines.at(-1) ?? "", /Effort set to max/);
 });
 
+test("/effort ultracode is max thinking plus subagents, and off keeps the level", async () => {
+  const session = host();
+  session.effort = "high";
+  session.setEffort = (level) => {
+    session.effort = level;
+    session.ultracode = false;
+  };
+  session.setUltracode = (on) => {
+    session.ultracode = on;
+    if (on) session.effort = "max";
+  };
+  await runSlashCommand("/effort ultracode", session);
+  assert.equal(session.ultracode, true);
+  assert.equal(session.effort, "max");
+  assert.match(session.lines.at(-1) ?? "", /max thinking \+ subagents/);
+  await runSlashCommand("/effort ultracode off", session);
+  assert.equal(session.ultracode, false);
+  assert.equal(session.effort, "max");
+  assert.match(session.lines.at(-1) ?? "", /Effort stays max/);
+  await runSlashCommand("/effort status", session);
+  assert.match(session.lines.at(-1) ?? "", /Effort: max/);
+  await runSlashCommand("/effort ultracode on", session);
+  await runSlashCommand("/effort status", session);
+  assert.match(session.lines.at(-1) ?? "", /ultracode · max \+ subagents/);
+  await runSlashCommand("/effort high", session);
+  assert.equal(session.ultracode, false);
+  assert.equal(session.effort, "high");
+});
+
 test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {
   const session = host();
   assert.match(helpText(), /\/resume\s+Open the session picker, or resume an id/);
