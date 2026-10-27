@@ -20,6 +20,23 @@ export function emptyDecodeState(): DecodeState {
   return { pending: "", paste: null };
 }
 
+/**
+ * Button-event tracking plus SGR encoding. The wheel then arrives as input
+ * instead of moving a console buffer that this frame repaints over.
+ * Classic conhost may ignore the request; Page Up and Page Down still scroll.
+ */
+export const MOUSE_TRACKING_ON = "\x1b[?1000h\x1b[?1006h";
+export const MOUSE_TRACKING_OFF = "\x1b[?1000l\x1b[?1006l";
+
+/** Wheel up is `1` (toward older lines). Shift, meta, and ctrl are ignored. */
+export function wheelDirection(button: number): -1 | 1 | 0 {
+  if (!Number.isFinite(button)) return 0;
+  const stripped = button & ~0b11100;
+  if (stripped === 64) return 1;
+  if (stripped === 65) return -1;
+  return 0;
+}
+
 export function pushConsoleChunk(state: DecodeState, chunk: string): { state: DecodeState; keys: KeyIn[] } {
   const keys: KeyIn[] = [];
   const text = state.pending + chunk;
@@ -122,7 +139,7 @@ export function blankKey(): KeyIn {
 }
 
 function push(keys: KeyIn[], key: KeyIn): void {
-  if (key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
+  if (key.wheel || key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
     keys.push(key);
   }
 }
@@ -147,6 +164,12 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
   }
 
   if (second === "[") {
+    if (text.startsWith("\x1b[M")) {
+      if (text.length < 6) return { incomplete: true, length: 0 };
+      const button = text.charCodeAt(3) - 32;
+      const dir = wheelDirection(button);
+      return { incomplete: false, length: 6, key: dir ? { ...blankKey(), wheel: dir } : undefined };
+    }
     let n = 2;
     while (n < text.length && n - 2 <= 48) {
       const code = text.charCodeAt(n);
@@ -179,6 +202,13 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
 
 function csiKey(body: string, final: string): KeyIn {
   const key = blankKey();
+  if ((final === "M" || final === "m") && body.startsWith("<")) {
+    if (final === "m") return key;
+    const button = Number(body.slice(1).split(";")[0] ?? "");
+    const dir = wheelDirection(button);
+    if (dir) key.wheel = dir;
+    return key;
+  }
   if (final === "Z") {
     key.tab = true;
     key.shift = true;

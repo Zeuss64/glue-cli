@@ -195,3 +195,30 @@ test("Windows Terminal sequences and legacy conhost scan codes drive the same ed
   assert.equal(reduceEditor(emptyEditor(), key({ escape: true })).effect, "escape");
   assert.equal(reduceEditor(emptyEditor(), key({ tab: true, shift: true })).effect, "cycle-mode");
 });
+
+test("the mouse wheel scrolls and does not insert text", () => {
+  const up = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1;1M").keys[0];
+  assert.equal(up?.wheel, 1);
+  assert.equal(up?.input, "");
+  const down = pushConsoleChunk(emptyDecodeState(), "\x1b[<65;8;2M").keys[0];
+  assert.equal(down?.wheel, -1);
+  const shift = pushConsoleChunk(emptyDecodeState(), "\x1b[<68;1;1M").keys[0];
+  assert.equal(shift?.wheel, 1);
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1;1m").keys.length, 0);
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[<0;1;1M").keys.length, 0);
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[M`!!").keys[0]?.wheel, 1);
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[Ma!!").keys[0]?.wheel, -1);
+  const partial = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;");
+  assert.equal(partial.keys.length, 0);
+  assert.equal(pushConsoleChunk(partial.state, "3;4M").keys[0]?.wheel, 1);
+  const mixed = pushConsoleChunk(emptyDecodeState(), "a\x1b[<65;1;1M");
+  assert.equal(mixed.keys[0]?.input, "a");
+  assert.equal(mixed.keys[1]?.wheel, -1);
+  assert.equal(apply(emptyEditor(), "hi\x1b[<64;1;1M").text, "hi");
+  const page = reduceEditor(emptyEditor(), key({ wheel: 1 }));
+  assert.equal(page.effect, "scroll-up");
+  assert.equal(page.state.text, "");
+  assert.equal(reduceEditor(emptyEditor(), key({ wheel: -1 })).effect, "scroll-down");
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[5~").keys[0]?.pageUp, true);
+  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x00I").keys[0]?.pageUp, true);
+});
