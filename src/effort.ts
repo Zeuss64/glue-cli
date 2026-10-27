@@ -48,23 +48,52 @@ export function effortStatusLabel(effort: EffortLevel | undefined, ultracode?: b
 }
 
 const EFFORT_COLOR: Record<string, string> = {
-  low: "blue",
-  medium: "cyan",
-  high: "yellow",
-  xhigh: "magenta",
+  low: "yellow",
+  medium: "green",
+  high: "cyan",
+  xhigh: "#c084fc",
   auto: "white",
 };
 
 /** Bright steps for the `max` shimmer. Other levels do not use this list. */
 export const MAX_EFFORT_SHIMMER = ["#fde047", "#fb923c", "#f472b6", "#e879f9", "#22d3ee", "#4ade80"] as const;
 
-/** Stable color per level. `max` advances through the shimmer on each tick. */
+const XHIGH_BASE = "#c084fc";
+const XHIGH_EDGE = "#e9d5ff";
+const XHIGH_WASH = "#ffffff";
+
+/** Stable color per level. `max` advances through the shimmer on each tick. `xhigh` stays purple here; the sweep is per glyph. */
 export function effortColor(level: string | undefined, tick = 0): string {
   if (level === "max") {
     const index = ((Math.floor(tick) % MAX_EFFORT_SHIMMER.length) + MAX_EFFORT_SHIMMER.length) % MAX_EFFORT_SHIMMER.length;
     return MAX_EFFORT_SHIMMER[index] ?? "green";
   }
   return EFFORT_COLOR[level ?? "auto"] ?? "white";
+}
+
+/**
+ * Where the white wash sits inside an `xhigh` label.
+ * `-1` means the wash is off the left or right end, so the word is solid purple.
+ */
+export function xhighSweepIndex(length: number, tick: number): number {
+  const span = Math.max(1, length) + 2;
+  const head = ((Math.floor(tick) % span) + span) % span;
+  const index = head - 1;
+  if (index < 0 || index >= length) return -1;
+  return index;
+}
+
+/** Per-glyph color. `xhigh` runs a white wash left to right. `max` uses the rainbow on every glyph. */
+export function effortGlyphColor(level: string, index: number, length: number, tick = 0): string {
+  if (level === "xhigh") {
+    const hot = xhighSweepIndex(length, tick);
+    if (hot < 0) return XHIGH_BASE;
+    const dist = Math.abs(index - hot);
+    if (dist === 0) return XHIGH_WASH;
+    if (dist === 1) return XHIGH_EDGE;
+    return XHIGH_BASE;
+  }
+  return effortColor(level, tick);
 }
 
 /** Public label in the model picker, for example `xHigh`. */

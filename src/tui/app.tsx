@@ -79,7 +79,7 @@ import {
   Welcome,
   CommandHelp,
 } from "./components.js";
-import { isModelDraft, modelPosition, modelWindow, openModelPicker, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
+import { isModelDraft, modelWindow, openModelPicker, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
 import { NAMED_ACCENTS, THEMES, type Theme } from "./theme.js";
 
 export interface Boot {
@@ -1680,8 +1680,10 @@ function App({ boot }: { boot: Boot }) {
           theme={theme}
           rows={modelWindow(modelList.items, modelList.selected).rows}
           selected={modelWindow(modelList.items, modelList.selected).selected}
-          position={modelPosition(modelList)}
+          start={modelWindow(modelList.items, modelList.selected).start}
+          current={model}
           effort={modelList.effort}
+          columns={termCols}
         />
       ) : null}
       {picker?.kind === "effort" ? (
@@ -1755,17 +1757,9 @@ function App({ boot }: { boot: Boot }) {
         theme={theme}
         mode={mode}
         approval={approval}
-        usage={usage}
-        effort={effort}
-        ultracode={ultracode}
-        model={model}
         goal={goal}
-        cwd={cwdLabel}
-        branch={branch}
         shell={shellEnabled}
         session={sessionName}
-        contextWindow={boot.config.contextWindow}
-        compact={customStatusLines.length > 0}
         hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"}
       />
     </Box>

@@ -1,6 +1,6 @@
 {
   "name": "glue-cli",
-  "version": "0.1.106",
+  "version": "0.1.107",
   "description": "Glue Cli — Claude Code–style open coding agent CLI",
   "license": "MIT",
   "keywords": [

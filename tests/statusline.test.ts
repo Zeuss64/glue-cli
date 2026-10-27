@@ -198,10 +198,10 @@ test("a null IME anchor hides the hardware cursor instead of leaving it at the b
 
 test("IME anchor sits on the caret and moves up only for visible status rows", () => {
   const empty = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0 });
-  assert.deepEqual(empty, { row: 26, column: 5 });
+  assert.deepEqual(empty, { row: 27, column: 5 });
   const custom = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0, statusRows: statusAreaRows(["model 20%", " "]) });
   assert.equal(statusAreaRows(["model 20%", " ", "\t"]), 2);
-  assert.equal(statusAreaRows(["", "   "]), 2);
+  assert.equal(statusAreaRows(["", "   "]), 1);
   assert.equal(custom.row, 26);
   assert.equal(custom.column, 5);
   assert.equal(placeCursorSequence(27, 5), "\x1b[27;5H");
@@ -215,5 +215,5 @@ test("blank or color-only statusline stdout does not reserve a row", () => {
   const shown = formatStatusLineOutput("\x1b[38;5;173mmodel 8%\x1b[0m\n\n", 80);
   assert.deepEqual(shown, ["model 8%"]);
   assert.equal(statusAreaRows(shown), 2);
-  assert.equal(statusAreaRows(formatStatusLineOutput("", 80)), 2);
+  assert.equal(statusAreaRows(formatStatusLineOutput("", 80)), 1);
 });

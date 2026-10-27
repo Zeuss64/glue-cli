@@ -29,19 +29,32 @@ export function openEffortPicker(current: EffortLevel, ultracode = false): Effor
   return { levels, selected, ultracode };
 }
 
-/** Label row and the track under it. The ▲ sits in the same columns as the highlighted name. */
+const TRACK_GAP = "  ";
+const TRACK_FLANK = "  ";
+
+/**
+ * One thin track, with the level names underneath.
+ * `Faster` and `Smarter` flank the line. The ▲ sits in the same columns as the highlighted name.
+ */
 export function effortTrackLines(levels: readonly string[], selected: number): { labels: string; track: string } {
-  const gap = "  ";
-  const cells = levels.map((level, index) => {
+  const cells = levels.map((level) => {
     const width = Math.max(level.length, 3);
-    return {
-      label: center(level, width),
-      track: index === selected ? centerMark(width, "▲") : "─".repeat(width),
-    };
+    return { width, label: center(level, width) };
   });
+  const body = cells.map((cell) => cell.label).join(TRACK_GAP);
+  let column = 0;
+  for (let index = 0; index < selected && index < cells.length; index += 1) {
+    column += (cells[index]?.width ?? 0) + TRACK_GAP.length;
+  }
+  const width = cells[selected]?.width ?? 1;
+  const markAt = Math.min(body.length - 1, column + Math.floor(width / 2));
+  const dashes = Array.from("─".repeat(body.length));
+  if (markAt >= 0 && markAt < dashes.length) dashes[markAt] = "▲";
+  const prefix = `Faster${TRACK_FLANK}`;
+  const suffix = `${TRACK_FLANK}Smarter`;
   return {
-    labels: cells.map((cell) => cell.label).join(gap),
-    track: cells.map((cell) => cell.track).join(gap),
+    track: `${prefix}${dashes.join("")}${suffix}`,
+    labels: `${" ".repeat(prefix.length)}${body}${" ".repeat(suffix.length)}`,
   };
 }
 
@@ -76,10 +89,4 @@ function center(text: string, width: number): string {
   const pad = Math.max(0, width - text.length);
   const left = Math.floor(pad / 2);
   return " ".repeat(left) + text + " ".repeat(pad - left);
-}
-
-function centerMark(width: number, mark: string): string {
-  const pad = Math.max(0, width - mark.length);
-  const left = Math.floor(pad / 2);
-  return "─".repeat(left) + mark + "─".repeat(pad - left);
 }

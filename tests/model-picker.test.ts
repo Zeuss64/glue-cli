@@ -6,6 +6,7 @@ import {
   isModelDraft,
   modelChoices,
   modelPosition,
+  modelListLines,
   modelWindow,
   openModelPicker,
   reduceModelPicker,
@@ -55,6 +56,18 @@ test("arrows move the highlight, left and right cycle effort, and the hint is N/
   const window = modelWindow(items, 4, 3);
   assert.deepEqual(window.rows, items.slice(3, 6));
   assert.equal(window.selected, 1);
+  assert.equal(window.start, 3);
+});
+
+test("model rows number the list, keep the check on the current id, and align descriptions", () => {
+  const lines = modelListLines([
+    { id: "solo", number: 1, current: true, focused: false, description: "Current session model" },
+    { id: "other", number: 2, current: false, focused: true, description: "Configured id" },
+  ]);
+  assert.match(lines[0] ?? "", /1\. solo ✓/);
+  assert.match(lines[1] ?? "", /^> 2\. other/);
+  assert.equal((lines[0] ?? "").indexOf("Current session model"), (lines[1] ?? "").indexOf("Configured id"));
+  assert.equal((lines[0] ?? "").startsWith(">"), false);
 });
 
 test("/model opens the picker and /model <id> does not", () => {
