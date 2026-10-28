@@ -2,6 +2,8 @@ export type PermissionMode =
   | "default"
   | "acceptEdits"
   | "plan"
+  | "auto"
+  | "yolo"
   | "dontAsk"
   | "bypassPermissions";
 

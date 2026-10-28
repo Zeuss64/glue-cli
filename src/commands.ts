@@ -5,7 +5,7 @@ import path from "node:path";
 import { diagnose, formatDoctor } from "./doctor.js";
 import { EFFORT_CYCLE, effortSetMessage, effortStatusLabel, parseEffortCommand, ULTRACODE_DESCRIPTION, type EffortLevel } from "./effort.js";
 import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
-import { normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
+import { autoEngaged, normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
 import { formatPluginList, installPlugin, loadPlugin, listPlugins, removePlugin } from "./plugins.js";
@@ -528,22 +528,24 @@ function applyGoal(args: string, host: CommandHost): void {
 }
 
 function applyAuto(args: string, host: CommandHost): void {
-  const current = host.approval ?? "manual";
+  const active = autoEngaged(host.permissionMode, host.approval ?? "manual");
   const trimmed = args.trim();
   if (!trimmed || trimmed === "status" || trimmed === "状态") {
     host.push(
-      current === "auto"
+      active
         ? "自动确认已开。低风险的读、改和本地命令会直接执行，rm -rf、越出目录、联网安装和提权仍会询问。"
         : "手动确认已开。改文件和执行命令前会询问。/auto on 打开自动确认。",
     );
     return;
   }
-  const next = trimmed === "toggle" || trimmed === "切换" ? (current === "auto" ? "manual" : "auto") : normalizeApproval(trimmed);
+  const next = trimmed === "toggle" || trimmed === "切换" ? (active ? "manual" : "auto") : normalizeApproval(trimmed);
   if (!next || !host.setApproval) {
     host.push("用法：/auto on | off | toggle。高风险操作始终询问。", "error");
     return;
   }
   host.setApproval(next);
+  if (next === "auto") host.setMode("auto");
+  else if (host.permissionMode === "auto") host.setMode("default");
   host.push(next === "auto" ? "已开启自动确认：低风险操作直接执行，高风险仍会询问。" : "已关闭自动确认，回到手动模式。");
 }
 
@@ -730,7 +732,7 @@ function applyPermissions(args: string, host: CommandHost): void {
         "Add a rule with /permissions allow Bash(npm test *)",
         "Or /permissions deny Read(**/.env)",
         "Or /permissions mode plan",
-        "shift+tab cycles default → accept edits → plan.",
+        "shift+tab cycles plan → manual → accept edits → auto → YOLO.",
       ].join("\n"),
     );
     return;

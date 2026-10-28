@@ -58,7 +58,13 @@ export function buildSystemPrompt(parts: PromptParts): string {
       : "Shell: disabled. Do not call run_shell. Ask the user to enable shell in .agent/config.toml if a command is required.",
     parts.permissionMode === "plan"
       ? "Plan mode is on. Read and search only. When you have a plan, call exit_plan_mode. Do not edit files or run mutating commands."
-      : "",
+      : parts.permissionMode === "auto"
+        ? "Auto mode is on. Low-risk edits and local commands are already approved. High-risk commands (delete, network install, privilege escalation) still need the user."
+        : parts.permissionMode === "yolo"
+          ? "YOLO mode is on. Tool calls are approved without asking. Stay inside the workspace and do not touch protected paths."
+          : parts.permissionMode === "bypassPermissions"
+            ? "Bypass mode is on. Tool calls are approved without asking. Stay inside the workspace and do not touch protected paths."
+            : "",
     parts.goal?.trim()
       ? `Current goal: ${parts.goal.trim()}\nKeep working toward this goal until it is done or the user changes it with /goal. Do not drop it for an unrelated task.`
       : "",

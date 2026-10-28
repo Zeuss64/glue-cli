@@ -252,9 +252,11 @@ test("/goal, /auto, and /statusline update the host and stay in help", async () 
   assert.equal(session.goal, "");
   await runSlashCommand("/auto on", session);
   assert.equal(session.approval, "auto");
+  assert.equal(session.permissionMode, "auto");
   assert.match(session.lines.at(-1) ?? "", /自动确认/);
   await runSlashCommand("/auto off", session);
   assert.equal(session.approval, "manual");
+  assert.equal(session.permissionMode, "default");
   await runSlashCommand("/statusline 模型和用量", session);
   const afterModel = readStatusLineConfig(home);
   assert.ok(afterModel?.command);

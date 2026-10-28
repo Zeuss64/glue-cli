@@ -57,6 +57,12 @@ export function footerModeLine(mode: PermissionMode, approval: ApprovalMode = "m
   return `▶ ${label} (shift+tab to cycle)`;
 }
 
+/** Auto stays on the yellow used by the manual/auto overlay. Other modes use their theme color. */
+export function footerModeInk(mode: PermissionMode, approval: ApprovalMode, modeColor: string): string {
+  if (mode === "auto" || (mode === "default" && approval === "auto")) return "yellow";
+  return modeColor;
+}
+
 export interface StatusBarInput {
   mode: PermissionMode;
   approval?: ApprovalMode;

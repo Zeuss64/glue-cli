@@ -22,7 +22,7 @@ import { listProjectFiles, completePath } from "../files.js";
 import { createId } from "../id.js";
 import { createLlmClient } from "../llm/client.js";
 import { expandMentions, mentionQuery } from "../mentions.js";
-import { nextMode, type ApprovalMode } from "../permissions.js";
+import { isPermissionMode, nextPermissionState, type ApprovalMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
 import { writeUiSettings } from "../settings.js";
 import { discoverSkills, resolveSkill, toActiveSkill, type ActiveSkill } from "../skills.js";
@@ -538,6 +538,11 @@ function App({ boot }: { boot: Boot }) {
       modeRef.current = next;
       setModeState(next);
       logRef.current?.updateMeta({ permissionMode: next });
+      if (next === "auto") {
+        if (approvalRef.current !== "auto") rememberApproval("auto");
+      } else if (approvalRef.current === "auto") {
+        rememberApproval("manual");
+      }
       rebuildSystem();
     },
     setProfile: (next) => {
@@ -755,7 +760,7 @@ function App({ boot }: { boot: Boot }) {
     logRef.current = SessionLog.open(file);
     const convo = snap.messages.filter((message) => message.role !== "system");
     messagesRef.current = convo;
-    if (snap.meta.permissionMode === "default" || snap.meta.permissionMode === "acceptEdits" || snap.meta.permissionMode === "plan" || snap.meta.permissionMode === "dontAsk" || snap.meta.permissionMode === "bypassPermissions") {
+    if (isPermissionMode(snap.meta.permissionMode)) {
       modeRef.current = snap.meta.permissionMode;
       setModeState(snap.meta.permissionMode);
     }
@@ -1455,9 +1460,9 @@ function App({ boot }: { boot: Boot }) {
       return;
     }
     if (effect === "cycle-mode") {
-      const include = boot.includeBypass || modeRef.current === "bypassPermissions";
-      const next = nextMode(modeRef.current, include);
-      hostRef.current.setMode(next);
+      const next = nextPermissionState(modeRef.current, approvalRef.current);
+      hostRef.current.setMode(next.mode);
+      if (approvalRef.current !== next.approval) hostRef.current.setApproval?.(next.approval);
       return;
     }
     if (effect === "toggle-expand") {
