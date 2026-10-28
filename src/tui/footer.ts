@@ -57,6 +57,34 @@ export function footerModeLine(mode: PermissionMode, approval: ApprovalMode = "m
   return `▶ ${label} (shift+tab to cycle)`;
 }
 
+export interface StatusBarInput {
+  mode: PermissionMode;
+  approval?: ApprovalMode;
+  hint?: string;
+  shell?: boolean;
+  session?: string;
+  goal?: string;
+}
+
+export interface StatusBarPiece {
+  text: string;
+  tone: "mode" | "muted";
+}
+
+/** The built-in footer as one wrapping line. Segments keep their colors in the TUI. */
+export function statusBarPieces(input: StatusBarInput): StatusBarPiece[] {
+  const pieces: StatusBarPiece[] = [{ text: footerModeLine(input.mode, input.approval ?? "manual"), tone: "mode" }];
+  if (input.hint) pieces.push({ text: ` · ${input.hint}`, tone: "muted" });
+  if (input.shell) pieces.push({ text: " · shell on", tone: "muted" });
+  if (input.session) pieces.push({ text: ` · ${input.session}`, tone: "muted" });
+  if (input.goal) pieces.push({ text: ` · ${input.goal}`, tone: "muted" });
+  return pieces;
+}
+
+export function statusBarLine(input: StatusBarInput): string {
+  return statusBarPieces(input).map((piece) => piece.text).join("");
+}
+
 export function formatContextSize(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return "0";
   if (tokens >= 1_000_000) {

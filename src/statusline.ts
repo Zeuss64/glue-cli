@@ -517,6 +517,18 @@ export function runStatusLineCommand(
   });
 }
 
+/**
+ * Statusline refresh to store. `undefined` means the visible rows did not
+ * change, and the caller must not setState: a no-op repaint moves the cursor
+ * and flickers IME preedit.
+ */
+export function statusLineFrame(previous: string, next: string, columns: number, padding = 0): string | undefined {
+  const prevLines = formatStatusLineOutput(previous, columns, padding).join("\n");
+  const nextLines = formatStatusLineOutput(next, columns, padding).join("\n");
+  if (prevLines === nextLines) return undefined;
+  return next;
+}
+
 export function formatStatusLineOutput(raw: string, columns: number, padding = 0): string[] {
   const width = Math.max(1, columns);
   const pad = Math.max(0, Math.min(width - 1, Math.floor(padding)));

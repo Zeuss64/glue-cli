@@ -8,13 +8,15 @@ export function caretVisible(tick: number): boolean {
 /**
  * Placeholder and caret while an IME composition may own the caret cell.
  * The placeholder is only for a truly empty buffer that is not composing.
- * A composition is the only glyph at the caret: the inverse block does not blink on top of it.
- * An empty buffer keeps a steady caret (no timer) so a repaint does not wipe the IME string.
+ * A composition is the only glyph at the caret: the inverse block is not drawn on top of it.
+ * The caret stays solid. A 530ms blink repaints the whole frame and is what
+ * made composing pinyin flicker under the box, because the host does not send
+ * preedit to the app. Pass `blink` only when a caller explicitly wants the old tick.
  */
-export function promptCaretMode(text: string, preedit = ""): "compose" | "steady" | "blink" {
+export function promptCaretMode(text: string, preedit = "", blink = false): "compose" | "steady" | "blink" {
   if (preedit.length > 0) return "compose";
-  if (text.length === 0) return "steady";
-  return "blink";
+  if (blink && text.length > 0) return "blink";
+  return "steady";
 }
 
 export function showPromptPlaceholder(text: string, preedit = "", placeholder?: string): boolean {

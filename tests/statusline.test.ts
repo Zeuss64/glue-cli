@@ -17,9 +17,11 @@ import {
   readGlueSettings,
   readStatusLineConfig,
   runStatusLineCommand,
+  statusLineFrame,
 } from "../src/statusline.js";
-import { attachImeCursorSync, IME_PARK_RESTORE, imeCursorSequence, imeParkSequence, isImeCursorChunk, placeCursorSequence } from "../src/tui/screen.js";
-import { imeAnchor, statusAreaRows } from "../src/tui/ime.js";
+import { attachImeCursorSync, IME_PARK_RESTORE, imeCursorSequence, imeParkSequence, isImeCursorChunk, placeCursorSequence, SYNC_UPDATE_CLOSE, SYNC_UPDATE_OPEN } from "../src/tui/screen.js";
+import { imeAnchor, statusAreaRows, wrappedRowCount } from "../src/tui/ime.js";
+import { statusBarLine } from "../src/tui/footer.js";
 import { layoutColumns } from "../src/tui/viewport.js";
 
 function fakeHome(): string {
@@ -151,7 +153,7 @@ test("loadConfig reads statusLine from ~/.glue/settings.json and ignores project
   assert.equal(existsSync(path.join(project, ".glue", "statusline.sh")), false);
 });
 
-test("IME cursor is parked after every paint and restored before the next one", async () => {
+test("IME cursor is moved inside the same write as the frame and stays there while idle", async () => {
   const writes: string[] = [];
   const stdout = {
     write(chunk: string) {
@@ -160,26 +162,33 @@ test("IME cursor is parked after every paint and restored before the next one", 
     },
   };
   const detach = attachImeCursorSync(stdout, () => ({ row: 12, column: 5 }));
-  await Promise.resolve();
-  const parked = writes.join("");
-  assert.equal(parked, imeParkSequence(12, 5));
-  assert.match(parked, /\x1b\[12;5H/);
-  assert.match(parked, /\x1b\[\?25l/);
-  assert.doesNotMatch(parked, /\x1b\[\?25h/);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0], SYNC_UPDATE_OPEN + imeParkSequence(12, 5) + SYNC_UPDATE_CLOSE);
+  assert.ok(endsAtAnchor(writes[0] ?? "", 12, 5));
   writes.length = 0;
   stdout.write("ink-frame\n");
   await Promise.resolve();
-  const repaint = writes.join("");
-  assert.ok(repaint.startsWith(IME_PARK_RESTORE + "ink-frame\n"), repaint);
-  assert.match(repaint, /\x1b7\x1b\[12;5H\x1b\[\?25l/);
+  assert.equal(writes.length, 1, "the CUP is not a follow-up microtask");
+  const repaint = writes[0] ?? "";
+  assert.equal(repaint, SYNC_UPDATE_OPEN + IME_PARK_RESTORE + "ink-frame\n" + imeParkSequence(12, 5) + SYNC_UPDATE_CLOSE);
+  assert.ok(repaint.indexOf(IME_PARK_RESTORE) < repaint.indexOf("ink-frame\n"));
+  assert.ok(repaint.indexOf("ink-frame\n") < repaint.lastIndexOf("\x1b[12;5H"));
+  assert.ok(endsAtAnchor(repaint, 12, 5));
   assert.doesNotMatch(repaint, /\x1b\[\?25h/);
   assert.equal(isImeCursorChunk(imeCursorSequence(12, 5)), true);
   assert.equal(isImeCursorChunk(imeParkSequence(12, 5)), true);
   assert.equal(isImeCursorChunk("ink-frame\n"), false);
   assert.equal(isImeCursorChunk(IME_PARK_RESTORE), false);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(writes.length, 1, "idle stdout does not keep writing");
   detach();
   assert.ok(writes.at(-1)?.startsWith("\x1b8"), "detach restores the cursor for the next erase");
 });
+
+function endsAtAnchor(chunk: string, row: number, column: number): boolean {
+  const body = chunk.endsWith(SYNC_UPDATE_CLOSE) ? chunk.slice(0, -SYNC_UPDATE_CLOSE.length) : chunk;
+  return body.endsWith(imeCursorSequence(row, column));
+}
 
 test("a null IME anchor hides the hardware cursor instead of leaving it at the bottom", async () => {
   const writes: string[] = [];
@@ -190,8 +199,7 @@ test("a null IME anchor hides the hardware cursor instead of leaving it at the b
     },
   };
   const detach = attachImeCursorSync(stdout, () => null);
-  await Promise.resolve();
-  assert.equal(writes.join(""), "\x1b[?25l");
+  assert.equal(writes.join(""), SYNC_UPDATE_OPEN + "\x1b[?25l" + SYNC_UPDATE_CLOSE);
   assert.doesNotMatch(writes.join(""), /\x1b\[\?25h/);
   detach();
 });
@@ -207,6 +215,36 @@ test("IME anchor sits on the caret and moves up only for visible status rows", (
   assert.equal(placeCursorSequence(27, 5), "\x1b[27;5H");
   assert.equal(layoutColumns(100), 99);
   assert.equal(layoutColumns(undefined), 79);
+});
+
+test("a wrapped status bar moves the IME anchor up by each extra row", () => {
+  const narrow = statusBarLine({
+    mode: "acceptEdits",
+    approval: "manual",
+    hint: "? for shortcuts",
+    session: "glue",
+    goal: "ship the ime fix",
+  });
+  assert.equal(wrappedRowCount("aaaaaaa bbbbbbb cc", 8), 3);
+  assert.equal(wrappedRowCount("aaaaaaa bbbbbbb cc", 10), 2);
+  assert.ok(wrappedRowCount(narrow, 30) >= 2);
+  const wide = statusBarLine({ mode: "default", approval: "manual", hint: "? for shortcuts" });
+  assert.equal(wrappedRowCount(wide, 100), 1);
+  const rows = wrappedRowCount(narrow, 30);
+  const wrapped = imeAnchor({ frameRows: 29, frameCols: 30, text: "", cursor: 0, statusRows: statusAreaRows([], rows) });
+  const single = imeAnchor({ frameRows: 29, frameCols: 30, text: "", cursor: 0, statusRows: 1 });
+  assert.equal(wrapped.row, single.row - (rows - 1));
+  assert.equal(statusAreaRows(["model 20%"], rows), rows + 1);
+  assert.equal(statusAreaRows(["model 20%", " "], 2), 3);
+});
+
+test("an unchanged statusline refresh is not published", () => {
+  assert.equal(statusLineFrame("model 8%", "model 8%", 80), undefined);
+  assert.equal(statusLineFrame("model 8%", "model 8%\n\n", 80), undefined);
+  assert.equal(statusLineFrame("\x1b[38;5;173mmodel 8%\x1b[0m", "model 8%", 80), undefined);
+  assert.equal(statusLineFrame("", "", 80), undefined);
+  assert.equal(statusLineFrame("model 8%", "model 9%", 80), "model 9%");
+  assert.equal(statusLineFrame("model 8%", "", 80), "");
 });
 
 test("blank or color-only statusline stdout does not reserve a row", () => {
