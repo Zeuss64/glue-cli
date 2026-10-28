@@ -6,13 +6,15 @@ import test from "node:test";
 import { stripAnsi } from "../src/statusline.js";
 import { slashRowLines, slashRowTone } from "../src/tui/complete.js";
 import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, PromptBox, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { statusBarLine } from "../src/tui/footer.js";
+import { wrappedRowCount } from "../src/tui/ime.js";
 import { displayWidth } from "../src/tui/text.js";
 import { THEMES } from "../src/tui/theme.js";
 import { layoutColumns } from "../src/tui/viewport.js";
 
 const theme = THEMES.ansi;
 
-test("status bar and permission dialog use the Glue labels", () => {
+test("status bar and permission dialog use the Glue labels", async () => {
   const status = render(createElement(StatusBar, { theme, mode: "acceptEdits" }));
   const statusFrame = stripAnsi(status.lastFrame() ?? "");
   assert.match(statusFrame, /accept edits on/);
@@ -82,7 +84,28 @@ test("status bar and permission dialog use the Glue labels", () => {
     createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme, text: "hi", cursor: 2, placeholder })),
   );
   assert.doesNotMatch(stripAnsi(typed.lastFrame() ?? ""), /Ask Glue/);
+  const settled = typed.frames.length;
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.equal(typed.frames.length, settled, "a filled prompt does not repaint on an idle caret timer");
   typed.unmount();
+
+  const bar = {
+    mode: "acceptEdits" as const,
+    approval: "manual" as const,
+    hint: "? for shortcuts",
+    session: "glue",
+    goal: "ship the ime fix",
+  };
+  for (const width of [12, 16, 20, 30, 40, 60, 80]) {
+    const status = render(
+      createElement(Box, { width, flexDirection: "column" }, createElement(StatusBar, { theme, ...bar })),
+    );
+    const rendered = stripAnsi(status.lastFrame() ?? "")
+      .split("\n")
+      .filter((line) => line.length > 0).length;
+    status.unmount();
+    assert.equal(wrappedRowCount(statusBarLine(bar), width), rendered, `status bar rows at ${width}`);
+  }
 
   const dialog = render(
     createElement(PermissionDialog, {

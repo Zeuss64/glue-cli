@@ -73,14 +73,22 @@ export function isImeCursorChunk(chunk: unknown): boolean {
 }
 
 /**
+ * DEC 2026 synchronized output. The terminal keeps the update private until
+ * the matching close, so a restore / frame / CUP sequence is one paint and
+ * the hardware cursor is never observed at the bottom of the window.
+ */
+export const SYNC_UPDATE_OPEN = "\x1b[?2026h";
+export const SYNC_UPDATE_CLOSE = "\x1b[?2026l";
+
+/**
  * After Ink paints, the hardware cursor sits past the last frame cell (the
- * lower-left of the window). Showing it there is the ghost blink under the
- * input. Patch stdout.write so each paint is followed by a save + CUP onto
- * the input caret, with the hardware cursor kept hidden.
+ * lower-left of the window). Windows IME draws pinyin at that cursor, which
+ * is the flicker under the input. Patch stdout.write so the restore, the Ink
+ * bytes, and the CUP back onto the caret are a single write. A microtask
+ * between those steps is the gap where pinyin paints at the bottom.
  *
- * The saved position is restored before the next write. log-update erases
- * relative to the cursor; skipping the restore leaves the previous orange
- * input border on screen (an empty bar under the prompt).
+ * log-update erases relative to the cursor, so the restore stays in front of
+ * the frame. Skipping it leaves the previous orange input border on screen.
  */
 export function attachImeCursorSync(
   stdout: { write: (...args: any[]) => any },
@@ -88,57 +96,65 @@ export function attachImeCursorSync(
 ): () => void {
   type Write = (...args: any[]) => any;
   const original = stdout.write.bind(stdout) as Write;
-  let scheduled = false;
   let active = true;
   let parked = false;
 
-  const restorePark = () => {
-    if (!parked) return;
+  const readAnchor = () => {
+    try {
+      return getAnchor();
+    } catch {
+      return null;
+    }
+  };
+
+  const tailFor = (anchor: { row: number; column: number } | null) => (anchor ? imeParkSequence(anchor.row, anchor.column) : "\x1b[?25l");
+
+  const emit = (body: string) => {
+    (original as (chunk: string) => unknown)(SYNC_UPDATE_OPEN + body + SYNC_UPDATE_CLOSE);
+  };
+
+  const place = (anchor: { row: number; column: number } | null) => {
+    emit(tailFor(anchor));
+    parked = anchor != null;
+  };
+
+  stdout.write = ((chunk: unknown, encoding?: unknown, cb?: unknown) => {
+    if (!active || isImeCursorChunk(chunk) || !isTerminalChunk(chunk)) return original(chunk, encoding, cb);
+    const restore = parked ? IME_PARK_RESTORE : "";
+    parked = false;
+    const anchor = readAnchor();
+    const body = SYNC_UPDATE_OPEN + restore + chunkToText(chunk) + tailFor(anchor) + SYNC_UPDATE_CLOSE;
+    const callback = typeof encoding === "function" ? encoding : typeof cb === "function" ? cb : undefined;
+    const enc = typeof encoding === "string" ? encoding : undefined;
+    const result = enc !== undefined ? original(body, enc, callback) : callback ? original(body, callback) : original(body);
+    parked = anchor != null;
+    return result;
+  }) as Write;
+
+  try {
+    place(readAnchor());
+  } catch {
+    /* stdout may be closed while the process is exiting */
+  }
+
+  return () => {
+    active = false;
+    if (!parked) {
+      stdout.write = original;
+      return;
+    }
     parked = false;
     try {
       (original as (chunk: string) => unknown)(IME_PARK_RESTORE);
     } catch {
       /* stdout may be closed while the process is exiting */
     }
-  };
-
-  const flush = () => {
-    scheduled = false;
-    if (!active) return;
-    const anchor = getAnchor();
-    try {
-      if (!anchor) {
-        restorePark();
-        (original as (chunk: string) => unknown)("\x1b[?25l");
-        return;
-      }
-      (original as (chunk: string) => unknown)(imeParkSequence(anchor.row, anchor.column));
-      parked = true;
-    } catch {
-      /* stdout may be closed while the process is exiting */
-    }
-  };
-
-  const schedule = () => {
-    if (!active || scheduled) return;
-    scheduled = true;
-    queueMicrotask(flush);
-  };
-
-  stdout.write = ((...args: any[]) => {
-    if (active && parked && !isImeCursorChunk(args[0])) restorePark();
-    const result = original(...args);
-    if (!isImeCursorChunk(args[0])) schedule();
-    return result;
-  }) as Write;
-
-  schedule();
-
-  return () => {
-    active = false;
-    restorePark();
     stdout.write = original;
   };
+}
+
+function isTerminalChunk(chunk: unknown): boolean {
+  return typeof chunk === "string" || Buffer.isBuffer(chunk) || chunk instanceof Uint8Array;
 }
 
 function chunkToText(chunk: unknown): string {

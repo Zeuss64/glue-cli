@@ -10,7 +10,7 @@ import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
 import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
 import { effortTrackLines } from "./effort-picker.js";
-import { footerModeLine } from "./footer.js";
+import { statusBarPieces } from "./footer.js";
 import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
 import { textInk, type Theme } from "./theme.js";
 
@@ -181,19 +181,10 @@ export function PromptBox({
   preedit?: string;
 }) {
   const composing = promptCaretMode(text, preedit ?? "") === "compose";
-  const blink = promptCaretMode(text, preedit ?? "") === "blink";
   const showPlaceholder = showPromptPlaceholder(text, preedit ?? "", placeholder);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (!blink) {
-      setTick(0);
-      return;
-    }
-    setTick(0);
-    const timer = setInterval(() => setTick((value) => value + 1), 530);
-    return () => clearInterval(timer);
-  }, [text, cursor, anchor, blink]);
-  const parts = composing ? [] : promptSegments(text, cursor, anchor, tick);
+  // Tick stays 0: the inverse block is solid. An idle interval repaints the
+  // frame and parks the hardware cursor, which flickers IME preedit.
+  const parts = composing ? [] : promptSegments(text, cursor, anchor, 0);
   return (
     <Box flexDirection="column" marginTop={1} flexShrink={0}>
       {hint ? <Text {...textInk(theme, theme.muted)}>{hint}</Text> : null}
@@ -244,14 +235,19 @@ export function StatusBar({
   shell?: boolean;
   session?: string;
 }) {
-  const line = footerModeLine(mode, approval);
+  const pieces = statusBarPieces({ mode, approval, hint, shell, session, goal });
   return (
     <Box flexShrink={0}>
-      <Text {...textInk(theme, approval === "auto" ? "yellow" : theme.mode[mode])}>{line}</Text>
-      {hint ? <Text {...textInk(theme, theme.muted)}>{` · ${hint}`}</Text> : null}
-      {shell ? <Text {...textInk(theme, theme.muted)}> · shell on</Text> : null}
-      {session ? <Text {...textInk(theme, theme.muted)}>{` · ${session}`}</Text> : null}
-      {goal ? <Text {...textInk(theme, theme.muted)}>{` · ${goal}`}</Text> : null}
+      <Text wrap="wrap">
+        {pieces.map((piece, index) => (
+          <Text
+            key={`${piece.tone}:${index}`}
+            {...textInk(theme, piece.tone === "mode" ? (approval === "auto" ? "yellow" : theme.mode[mode]) : theme.muted)}
+          >
+            {piece.text}
+          </Text>
+        ))}
+      </Text>
     </Box>
   );
 }

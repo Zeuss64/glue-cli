@@ -95,7 +95,8 @@ test("placeholder stays off the caret while IME preedit is showing", () => {
   assert.equal(showPromptPlaceholder("hi", "", "Ask Glue to change this project"), false);
   assert.equal(promptCaretMode("", "xiao"), "compose");
   assert.equal(promptCaretMode("", ""), "steady");
-  assert.equal(promptCaretMode("hi", ""), "blink");
+  assert.equal(promptCaretMode("hi", ""), "steady");
+  assert.equal(promptCaretMode("hi", "", true), "blink");
 });
 
 test("the caret is visible on even ticks and covers one grapheme", () => {

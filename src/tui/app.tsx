@@ -32,6 +32,7 @@ import {
   formatStatusLineOutput,
   readStatusLineConfig,
   runStatusLineCommand,
+  statusLineFrame,
   STATUSLINE_DEBOUNCE_MS,
   type StatusLineConfig,
 } from "../statusline.js";
@@ -58,7 +59,8 @@ import { openEffortPicker, reduceEffortPicker, type EffortPickerState } from "./
 import { prevGrapheme } from "./text.js";
 import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
 import { cycleSlash, slashTabIndex, type SlashCycle } from "./complete.js";
-import { imeAnchor, statusAreaRows } from "./ime.js";
+import { statusBarLine } from "./footer.js";
+import { imeAnchor, statusAreaRows, wrappedRowCount } from "./ime.js";
 import { isEffortPickerShortcut, MOUSE_TRACKING_ON, pickerSurface } from "./keys.js";
 import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
@@ -213,6 +215,7 @@ function App({ boot }: { boot: Boot }) {
   const goalRef = useRef(goal);
   const approvalRef = useRef(approval);
   const statusLineConfigRef = useRef(statusLineConfig);
+  const statusLineOutputRef = useRef("");
   const glueHomeRef = useRef(homedir());
   const statusAbortRef = useRef<AbortController | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -401,7 +404,7 @@ function App({ boot }: { boot: Boot }) {
     if (!config?.command) {
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
       statusAbortRef.current?.abort();
-      setStatusLineOutput("");
+      publishStatusLine("");
       return;
     }
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
@@ -414,7 +417,7 @@ function App({ boot }: { boot: Boot }) {
   async function refreshStatusLineNow(): Promise<void> {
     const config = statusLineConfigRef.current;
     if (!config?.command) {
-      setStatusLineOutput("");
+      publishStatusLine("");
       return;
     }
     statusAbortRef.current?.abort();
@@ -445,7 +448,14 @@ function App({ boot }: { boot: Boot }) {
       lines: frameSizeRef.current.rows,
       signal: ac.signal,
     });
-    if (!ac.signal.aborted) setStatusLineOutput(text);
+    if (!ac.signal.aborted) publishStatusLine(text);
+  }
+
+  function publishStatusLine(text: string): void {
+    const next = statusLineFrame(statusLineOutputRef.current, text, frameSizeRef.current.cols, statusLineConfigRef.current?.padding ?? 0);
+    if (next === undefined) return;
+    statusLineOutputRef.current = next;
+    setStatusLineOutput(next);
   }
 
   function setSlash(index: number): void {
@@ -1099,7 +1109,15 @@ function App({ boot }: { boot: Boot }) {
   const customStatusLines = statusLineConfig?.command
     ? formatStatusLineOutput(statusLineOutput, termCols, statusLineConfig.padding)
     : [];
-  const statusRows = statusAreaRows(customStatusLines);
+  const statusBar = {
+    mode,
+    approval,
+    hint: shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts",
+    shell: shellEnabled,
+    session: sessionName,
+    goal,
+  };
+  const statusRows = statusAreaRows(customStatusLines, wrappedRowCount(statusBarLine(statusBar), termCols));
   let extraLines = 0;
   if (statusRows > 1) extraLines += statusRows - 1;
   if (phase.type === "running") extraLines += 1;
@@ -1753,15 +1771,7 @@ function App({ boot }: { boot: Boot }) {
         hint={revMatch ? `${promptHint}\n${revMatch}` : promptHint}
       />
       {statusRows > 1 ? <CustomStatusLine theme={theme} lines={customStatusLines} /> : null}
-      <StatusBar
-        theme={theme}
-        mode={mode}
-        approval={approval}
-        goal={goal}
-        shell={shellEnabled}
-        session={sessionName}
-        hint={shellEnabled ? "? for shortcuts · shell on" : "? for shortcuts"}
-      />
+      <StatusBar theme={theme} {...statusBar} />
     </Box>
   );
 }
