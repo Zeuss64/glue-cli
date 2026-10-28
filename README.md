@@ -42,6 +42,10 @@ base_url = "https://api.openai.com/v1"
 
 `GLUE_PROTOCOL=openai` 走 `…/chat/completions`。`GLUE_PROTOCOL=anthropic` 走 `…/v1/messages`。Shell 默认关闭，`GLUE_SHELL=1` 或 `shell.enabled = true` 后再用。
 
+## Profile
+
+普通安装使用 `profile = "default"`。它从 `profiles/default/PROMPT.md` 加载 CPLD 系统提示 v0.5。`profiles/cpld` 是同一份提示，`glue --profile cpld` 与默认相同。查找顺序见 [profiles/README.md](profiles/README.md)。
+
 ## 命令
 
 - `/model` 和 Alt+P 打开同一个界面。有 `models` 时用配置里的那些 id，当前 `model` 放在第一位，同一个 id 只出现一次。没写 `models` 时只显示当前模型，不会带上无关的内置 id。界面分四层：标题、编号列表、effort、底部提示。当前模型带绿色 `✓`，焦点行是 `>`。说明文字在右侧同一列。effort 单独一行，`←/→` 只写在这一行。`Enter to select · Esc to cancel` 在再下一行。`/model <id>` 直接切换，不打开列表。Alt+P 不清掉正在输入的草稿。
@@ -70,8 +74,12 @@ Coding agent for CPLD. `glue` is an MIT-licensed terminal agent. It speaks OpenA
 
 `npm run install:global` builds and runs `npm install -g .`. On Windows, use that command: it no longer calls `spawnSync` on `npm.cmd` (that returned EINVAL). If it still fails, run `npm install -g .` after `npm run build`. `glue.cmd` is in the directory `npm prefix -g` prints; add that directory to the user Path if needed (`%USERPROFILE%\npm-global` when the default prefix is not writable). The first session creates `~/.glue/config.toml` when it is missing and does not write an API key. Set `GLUE_API_KEY` (or `AGENT_API_KEY` / `OPENAI_API_KEY`).
 
-`/model` lists `models` from config, with the current model first and each id once. If `models` is empty, the list is only `model`, not unrelated built-in ids. One `base_url` and key can serve several models: set `models = ["id-a", "id-b"]`. `/model <id>` sets an id directly. Left and right in the model picker change effort.
+### Profile
 
-`/effort` opens a left/right picker for low, medium, high, xhigh, max, and auto. Alt+P opens the same picker. Enter sets the highlighted level. Esc cancels. `/effort <level>` still sets a level directly, and `/effort status` prints the current one.
+A normal install uses `profile = "default"`. That loads the CPLD system prompt v0.5 from `profiles/default/PROMPT.md`. `profiles/cpld` has the same prompt, so `glue --profile cpld` matches the default. Lookup order is in [profiles/README.md](profiles/README.md).
+
+`/model` and Alt+P open the same four-layer screen: title, numbered list, effort row, then `Enter to select · Esc to cancel`. With `models` set, those ids are listed, current model first, each id once. With no `models` list, only the current `model` is shown, not unrelated built-in ids. One `base_url` and key can serve several models: set `models = ["id-a", "id-b"]`. The current model has a green `✓`, the focused row is `>`, and descriptions share the right-hand column. `←/→` change effort on that row only. `/model <id>` switches without opening the list. Alt+P leaves the draft in place.
+
+`/effort` opens a centered slider: a thin track with `Faster` and `Smarter` on the sides and the level names underneath. `▲` sits above the current stop, the only one in color (low yellow, medium green, high cyan, xhigh purple with a white sweep, max keeps shifting). Purple `Ultracode on/off` is on the right; Tab toggles it and does not change the level. While it is on, the system prompt uses `Ultracode: dynamic workflows on every task` and prefers `spawn_subagent`; turning it off drops both on the next turn. `/effort ultracode` and `/effort ultracode off` flip only that switch and keep the level. There is no second, session-only save. `/effort <level>` sets a level directly, and `/effort status` prints the current one. The default footer shows only the mode and `shift+tab`; a custom `~/.glue` status line still draws above it. Anthropic sends `output_config.effort` except for auto; OpenAI Chat Completions do not. `GLUE_EFFORT=ultracode` starts at `max` with the switch on.
 
 `/goal` keeps a persistent goal. Shift+Tab cycles plan → manual → accept edits → auto → YOLO, and a new session starts in manual. `/auto on` is that auto mode: low-risk tools pass and high-risk shell (recursive delete, network install, privilege escalation) still asks. YOLO approves every operation with no prompt. The footer shows the active mode. `/auto off` returns to manual. `/statusline` generates a command script under `~/.glue/` (see `~/.glue/settings.json`) from a short description, or with no args for model + context %. Glue feeds the script JSON on stdin and renders stdout above the built-in footer. Empty or color-only stdout does not leave a blank row. `/statusline clear` removes it. `/skill` lists and loads `SKILL.md` skills. `/plugin load` attaches a local skill folder, and `/plugin install owner/repo` clones a GitHub skill library. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. The mouse wheel and PgUp scroll inside the transcript; the host scrollbar does not. PgDn returns to the latest line. Resize repaints the frame from the new stdout size, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).
