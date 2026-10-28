@@ -49,7 +49,7 @@ base_url = "https://api.openai.com/v1"
 - 鼠标滚轮或 PgUp 看更早的对话，PgDn 回到最新。停在最新一行时，新输出仍跟着底部。提示是 `wheel or pgup for earlier`，Windows 右侧滚动条不会跟着走。
 - `/resume` 打开其它近期会话。`/resume <id>` 直接恢复。`glue -c` 继续最近一次。
 - `/goal <一句话>` 记下当前目标，写入会话和 `.agent/ui.json`。`/goal clear` 清除。
-- `/auto on` 自动放行低风险的读、改和本地命令。`rm -rf`、越出工作区、联网安装、提权仍会询问。页脚在 `manual mode on` 和 `auto mode on` 之间切换。`/auto off` 回到手动。
+- `/auto on` 进入 auto：低风险的读、改和本地命令直接执行，`rm -rf`、联网安装、提权仍会询问。`/auto off` 回到 manual。Shift+Tab 顺序是 plan → manual → accept → auto → YOLO。YOLO 自动批准操作，不再询问。默认是 manual。页脚显示当前模式。
 - `/statusline` 在全局 `~/.glue/` 生成状态栏脚本（不是项目目录）。无参数时默认显示模型和上下文占用百分比；也可以用一句话描述，例如 `/statusline show model name and context percentage with a progress bar`。`/statusline clear`（或 `delete` / `remove`）去掉自定义状态栏。Glue 把会话 JSON 从 stdin 传给脚本，把 stdout 画在页脚上方。脚本没有可见输出时不留空行。
 - `/skill` 列出技能，`/skill <name>` 加载并执行。技能文件是 `.glue/skills/<name>/SKILL.md`、`.agent/skills/<name>/SKILL.md` 或 `~/.glue/skills/<name>/SKILL.md`。
 - `/plugin load <目录>` 把本地技能库接到当前项目。`/plugin install <owner/repo>` 从 GitHub 安装到 `~/.glue/plugins`。只读取 `SKILL.md`，不执行插件里的其它程序。
@@ -57,7 +57,7 @@ base_url = "https://api.openai.com/v1"
 - Tab 按前缀补全 `/` 命令；多个匹配时循环，并高亮菜单。Shift+Tab 仍切换权限。
 - 退出时清掉最后一帧，避免橙色输入框留在 cmd 提示符上。窗口变大或变小时按新的行列重画整帧。
 
-Shift+Tab 切换权限。改文件前会确认。界面改动见 [docs/tui-hacking.md](docs/tui-hacking.md)。
+Shift+Tab 按 plan → manual → accept → auto → YOLO 循环。默认是 manual，改文件前会确认。界面改动见 [docs/tui-hacking.md](docs/tui-hacking.md)。
 
 ```bash
 npm test
@@ -74,4 +74,4 @@ Coding agent for CPLD. `glue` is an MIT-licensed terminal agent. It speaks OpenA
 
 `/effort` opens a left/right picker for low, medium, high, xhigh, max, and auto. Alt+P opens the same picker. Enter sets the highlighted level. Esc cancels. `/effort <level>` still sets a level directly, and `/effort status` prints the current one.
 
-`/goal` keeps a persistent goal. `/auto on` auto-approves low-risk tools and still asks for high-risk shell (recursive delete, network install, privilege escalation). `/statusline` generates a command script under `~/.glue/` (see `~/.glue/settings.json`) from a short description, or with no args for model + context %. Glue feeds the script JSON on stdin and renders stdout above the built-in footer. Empty or color-only stdout does not leave a blank row. `/statusline clear` removes it. `/skill` lists and loads `SKILL.md` skills. `/plugin load` attaches a local skill folder, and `/plugin install owner/repo` clones a GitHub skill library. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. The mouse wheel and PgUp scroll inside the transcript; the host scrollbar does not. PgDn returns to the latest line. Resize repaints the frame from the new stdout size, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).
+`/goal` keeps a persistent goal. Shift+Tab cycles plan → manual → accept edits → auto → YOLO, and a new session starts in manual. `/auto on` is that auto mode: low-risk tools pass and high-risk shell (recursive delete, network install, privilege escalation) still asks. YOLO approves every operation with no prompt. The footer shows the active mode. `/auto off` returns to manual. `/statusline` generates a command script under `~/.glue/` (see `~/.glue/settings.json`) from a short description, or with no args for model + context %. Glue feeds the script JSON on stdin and renders stdout above the built-in footer. Empty or color-only stdout does not leave a blank row. `/statusline clear` removes it. `/skill` lists and loads `SKILL.md` skills. `/plugin load` attaches a local skill folder, and `/plugin install owner/repo` clones a GitHub skill library. `/help` is a paged panel; unavailable commands such as `/login` print one line. Tab completes slash commands by prefix. The mouse wheel and PgUp scroll inside the transcript; the host scrollbar does not. PgDn returns to the latest line. Resize repaints the frame from the new stdout size, and exit erases it so cmd's prompt is not covered. See [docs/tui-hacking.md](docs/tui-hacking.md).

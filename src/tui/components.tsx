@@ -10,7 +10,7 @@ import type { PermissionPrompt } from "../agent/loop.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
 import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
 import { effortTrackLines } from "./effort-picker.js";
-import { statusBarPieces } from "./footer.js";
+import { footerModeInk, statusBarPieces } from "./footer.js";
 import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
 import { textInk, type Theme } from "./theme.js";
 
@@ -242,7 +242,7 @@ export function StatusBar({
         {pieces.map((piece, index) => (
           <Text
             key={`${piece.tone}:${index}`}
-            {...textInk(theme, piece.tone === "mode" ? (approval === "auto" ? "yellow" : theme.mode[mode]) : theme.muted)}
+            {...textInk(theme, piece.tone === "mode" ? footerModeInk(mode, approval, theme.mode[mode]) : theme.muted)}
           >
             {piece.text}
           </Text>
@@ -313,7 +313,7 @@ export function HelpPanel({ theme }: { theme: Theme }) {
   const rows: Array<[string, string]> = [
     ["enter", "send"],
     ["\\ + enter", "newline"],
-    ["shift+tab", "cycle permission mode"],
+    ["shift+tab", "cycle plan, manual, accept, auto, YOLO"],
     ["backspace", "delete the previous character"],
     ["delete", "delete the next character"],
     ["esc", "interrupt, or deny a prompt"],

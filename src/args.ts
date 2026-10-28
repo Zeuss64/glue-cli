@@ -108,11 +108,11 @@ Options
   --model <name>               model id
   --base-url <url>             OpenAI or Anthropic base URL
   --protocol <name>            openai or anthropic (default: infer from the URL)
-  --permission-mode <mode>     default | acceptEdits | plan | dontAsk | bypassPermissions
+  --permission-mode <mode>     default | acceptEdits | plan | auto | yolo | dontAsk | bypassPermissions
   --dangerously-skip-permissions
                                start in bypass mode
   --allow-dangerously-skip-permissions
-                               add bypass to the shift+tab cycle
+                               legacy flag; Shift+Tab cycles plan → manual → accept → auto → yolo
   --allowedTools <rule>        session allow rule, repeatable. Example: Bash(npm test *)
   --add-dir <dir>              extra workspace root, repeatable
   --profile <name>             prompt profile (profiles/<name>/PROMPT.md)

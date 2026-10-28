@@ -63,14 +63,31 @@ export function emptyRules(): PermissionRules {
   return { allow: [], deny: [], ask: [] };
 }
 
+const PERMISSION_MODES: readonly PermissionMode[] = [
+  "default",
+  "acceptEdits",
+  "plan",
+  "auto",
+  "yolo",
+  "dontAsk",
+  "bypassPermissions",
+];
+
+export function isPermissionMode(value: string | undefined): value is PermissionMode {
+  return value !== undefined && (PERMISSION_MODES as readonly string[]).includes(value);
+}
+
 export function normalizeMode(value: string | undefined, fallback: PermissionMode = "default"): PermissionMode {
   if (!value) return fallback;
   const table: Record<string, PermissionMode> = {
     default: "default",
     manual: "default",
+    accept: "acceptEdits",
     acceptedits: "acceptEdits",
     "accept-edits": "acceptEdits",
     plan: "plan",
+    auto: "auto",
+    yolo: "yolo",
     dontask: "dontAsk",
     "dont-ask": "dontAsk",
     bypass: "bypassPermissions",
@@ -80,7 +97,7 @@ export function normalizeMode(value: string | undefined, fallback: PermissionMod
   const found = table[value.trim().toLowerCase()];
   if (!found) {
     throw new Error(
-      `Unknown permission mode "${value}". Use default, acceptEdits, plan, dontAsk, or bypassPermissions.`,
+      `Unknown permission mode "${value}". Use default, acceptEdits, plan, auto, yolo, dontAsk, or bypassPermissions.`,
     );
   }
   return found;
@@ -94,6 +111,10 @@ export function modeLabel(mode: PermissionMode): string {
       return "⏵⏵ accept edits on";
     case "plan":
       return "⏸ plan mode on";
+    case "auto":
+      return "⏵⏵ auto mode on";
+    case "yolo":
+      return "⏵⏵ YOLO mode on";
     case "dontAsk":
       return "⏵⏵ don't ask on";
     case "bypassPermissions":
@@ -109,9 +130,14 @@ export function normalizeApproval(value: string | undefined | null): ApprovalMod
   return undefined;
 }
 
-/** Right-hand footer. Auto replaces the manual badge only while permission mode is still default. */
+/** True when low-risk work is auto-approved. Mode `auto`, or manual mode with the /auto overlay. */
+export function autoEngaged(mode: PermissionMode, approval: ApprovalMode = "manual"): boolean {
+  return mode === "auto" || (mode === "default" && approval === "auto");
+}
+
+/** Footer badge. The /auto overlay still reads as auto while the stored mode is manual. */
 export function footerModeLabel(mode: PermissionMode, approval: ApprovalMode = "manual"): string {
-  if (mode === "default" && approval === "auto") return "⏵⏵ auto mode on";
+  if (autoEngaged(mode, approval)) return modeLabel("auto");
   return modeLabel(mode);
 }
 
@@ -186,17 +212,37 @@ function segmentIsHighRisk(segment: string): boolean {
   return HIGH_RISK.some((pattern) => pattern.test(segment));
 }
 
-export function cycleModes(includeBypass: boolean): PermissionMode[] {
-  const modes: PermissionMode[] = ["default", "acceptEdits", "plan"];
-  if (includeBypass) modes.push("bypassPermissions");
-  return modes;
+/**
+ * Shift+Tab order. A new session starts at manual (`default`), not at plan.
+ * `dontAsk` and `bypassPermissions` stay settable, and Shift+Tab from either enters at plan.
+ */
+export const SHIFT_TAB_MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "auto", "yolo"];
+
+export interface PermissionCycleState {
+  mode: PermissionMode;
+  approval: ApprovalMode;
 }
 
-export function nextMode(current: PermissionMode, includeBypass: boolean): PermissionMode {
-  const modes = cycleModes(includeBypass);
-  const idx = modes.indexOf(current);
-  if (idx === -1) return modes[0] ?? "default";
-  return modes[(idx + 1) % modes.length] ?? "default";
+export function cycleModes(): readonly PermissionMode[] {
+  return SHIFT_TAB_MODES;
+}
+
+/** Slot in the Shift+Tab cycle. Manual with the /auto overlay shares the auto slot. */
+export function cycleSlot(mode: PermissionMode, approval: ApprovalMode = "manual"): PermissionMode | undefined {
+  if (autoEngaged(mode, approval)) return "auto";
+  if (mode === "plan" || mode === "default" || mode === "acceptEdits" || mode === "yolo") return mode;
+  return undefined;
+}
+
+export function nextPermissionState(current: PermissionMode, approval: ApprovalMode = "manual"): PermissionCycleState {
+  const slot = cycleSlot(current, approval);
+  const idx = slot ? SHIFT_TAB_MODES.indexOf(slot) : -1;
+  const mode = SHIFT_TAB_MODES[(idx + 1) % SHIFT_TAB_MODES.length] ?? "default";
+  return { mode, approval: mode === "auto" ? "auto" : "manual" };
+}
+
+export function nextMode(current: PermissionMode, approval: ApprovalMode = "manual"): PermissionMode {
+  return nextPermissionState(current, approval).mode;
 }
 
 export function decidePermission(query: PermissionQuery): PermissionDecision {
@@ -206,13 +252,13 @@ export function decidePermission(query: PermissionQuery): PermissionDecision {
   if (ruleHit(query.rules.deny, query)) return "deny";
   if (query.readOnly && mutating) return "deny";
   if (query.mode === "plan" && mutating && !isReadOnlyBash(query.command)) return "deny";
-  if (query.mode === "bypassPermissions") return "allow";
+  if (query.mode === "bypassPermissions" || query.mode === "yolo") return "allow";
   if (ruleHit(query.rules.ask, query)) return "ask";
   if (ruleHit(query.rules.allow, query)) return "allow";
   if (query.tool === "run_shell" && isReadOnlyBash(query.command)) return "allow";
   if (query.mode === "acceptEdits" && query.tool === "run_shell" && isAcceptFs(query.command)) return "allow";
   if (!mutating) return "allow";
-  if (query.approval === "auto" && query.mode === "default") {
+  if (autoEngaged(query.mode, query.approval ?? "manual")) {
     if (isHighRisk(query)) return "ask";
     return "allow";
   }
