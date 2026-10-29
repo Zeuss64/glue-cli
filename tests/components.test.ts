@@ -4,8 +4,9 @@ import { Box } from "ink";
 import { render } from "ink-testing-library";
 import test from "node:test";
 import { stripAnsi } from "../src/statusline.js";
-import { slashRowLines, slashRowTone } from "../src/tui/complete.js";
-import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, PromptBox, ResumePicker, ScrollMeter, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { slashRowLines, slashRowTone, visibleSlash } from "../src/tui/complete.js";
+import { CommandHelp, CustomStatusLine, EffortPicker, ModelPicker, PermissionDialog, PromptBox, ResumePicker, ScrollMeter, SkillPicker, SlashMenu, StatusBar, ToolBlock, TranscriptView, transcriptTone } from "../src/tui/components.js";
+import { filterSkillPicker, reduceSkillPicker, skillPickerLine, type SkillPickerItem } from "../src/tui/skill-picker.js";
 import { statusBarLine } from "../src/tui/footer.js";
 import { wrappedRowCount } from "../src/tui/ime.js";
 import { displayWidth } from "../src/tui/text.js";
@@ -328,6 +329,62 @@ test("a selected slash row keeps one color across the command and the full descr
   assert.doesNotMatch(frame, /statusge/);
   assert.doesNotMatch(frame, /statu\nsline/);
   view.unmount();
+});
+
+test("the skill picker filters, scrolls, and truncates wide descriptions", () => {
+  const items: SkillPickerItem[] = Array.from({ length: 8 }, (_, index) => ({
+    id: `skill-${index}`,
+    name: `skill-${index}`,
+    description: index === 3 ? "审查路径" : "plain",
+    source: "personal",
+  }));
+  items.push({ id: "wide", name: "测", description: `${"查".repeat(30)}END`, source: "plugin:pack" });
+  const blank = { input: "", ctrl: false, meta: false, return: false, escape: false, tab: false, backspace: false, delete: false, up: false, down: false };
+  let state = { all: items, query: "", selected: 0 };
+  for (const ch of "审查") {
+    state = reduceSkillPicker(state, { ...blank, input: ch }).state;
+  }
+  const matched = filterSkillPicker(state.all, state.query);
+  assert.equal(matched.length, 1);
+  assert.equal(matched[0]?.id, "skill-3");
+  const activated = reduceSkillPicker(state, { ...blank, return: true });
+  assert.equal(activated.effect?.type, "activate");
+  if (activated.effect?.type === "activate") assert.equal(activated.effect.id, "skill-3");
+  const filled = reduceSkillPicker({ all: items, query: "", selected: 8 }, { ...blank, tab: true });
+  assert.equal(filled.effect?.type, "fill");
+  if (filled.effect?.type === "fill") assert.equal(filled.effect.id, "wide");
+
+  const scrolled = visibleSlash(items, 7, 6);
+  assert.equal(scrolled.rows.length, 6);
+  assert.equal(scrolled.rows[0]?.id, "skill-3");
+  assert.equal(scrolled.selected, 4);
+  assert.equal(scrolled.rows.some((row) => row.id === "skill-0"), false);
+
+  const wide = items[8];
+  assert.ok(wide);
+  const line = skillPickerLine(wide, 28, true);
+  assert.ok(displayWidth(line) <= 28);
+  assert.match(line, /测 \(plugin:pack\)/);
+  assert.match(line, /…/);
+  assert.doesNotMatch(line, /END/);
+
+  const view = render(createElement(SkillPicker, { theme, items, selected: 7, query: "", columns: 24 }));
+  const frame = stripAnsi(view.lastFrame() ?? "");
+  assert.match(frame, /skill-7/);
+  assert.match(frame, /skill-3/);
+  assert.doesNotMatch(frame, /skill-0/);
+  assert.match(frame, /…/);
+  assert.doesNotMatch(frame, /END/);
+  assert.match(frame, /↑↓ select · enter load · tab fill · esc close/);
+  view.unmount();
+
+  const filteredView = render(createElement(SkillPicker, { theme, items: matched, selected: 0, query: "审查", columns: 40 }));
+  const filtered = stripAnsi(filteredView.lastFrame() ?? "");
+  assert.match(filtered, /filter: 审查/);
+  assert.match(filtered, /skill-3/);
+  assert.match(filtered, /审查路径/);
+  assert.doesNotMatch(filtered, /skill-7/);
+  filteredView.unmount();
 });
 
 test("the built-in footer is the mode line and does not print the dense status fields", () => {

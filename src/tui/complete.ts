@@ -1,11 +1,24 @@
-import { filterCommands } from "../commands.js";
-import { displayWidth, graphemes } from "./text.js";
+import { filterPluginNames, filterSkillArgs, filterSlashEntries } from "../commands.js";
+import type { Skill } from "../skills.js";
+import { displayWidth, fitWidth } from "./text.js";
+
+export { fitWidth };
 
 export interface SlashCycle {
+  kind: "slash" | "skill" | "plugin-remove";
   /** Query the user had typed before Tab started cycling. */
   prefix: string;
   index: number;
   lastName: string;
+  /** Exact prompt text last written by Tab. */
+  lastText: string;
+}
+
+export interface SlashFill {
+  text: string;
+  index: number;
+  names: string[];
+  ambiguous: boolean;
 }
 
 /**
@@ -25,13 +38,25 @@ export function slashTabIndex(opts: { cycling: boolean; cycleIndex: number; sele
  * menu highlights the same row. The original prefix is kept so the second Tab
  * does not treat the filled-in name as a new unique query.
  */
-export function cycleSlash(prefix: string, index: number): {
-  text: string;
-  index: number;
-  names: string[];
-  ambiguous: boolean;
-} | null {
-  const matches = filterCommands(prefix);
+export function cycleSlash(prefix: string, index: number, skills: readonly Skill[] = []): SlashFill | null {
+  return cycleEntries(filterSlashEntries(prefix, skills), index, (name, ambiguous) => (ambiguous ? `/${name}` : `/${name} `));
+}
+
+/** Tab after `/skill ` fills `/skill <id>` and cycles when several ids match. */
+export function cycleSkillArg(prefix: string, index: number, skills: readonly Skill[]): SlashFill | null {
+  return cycleEntries(filterSkillArgs(prefix, skills), index, (name, ambiguous) => (ambiguous ? `/skill ${name}` : `/skill ${name} `));
+}
+
+/** Tab after `/plugin remove ` fills an installed plugin name. */
+export function cyclePluginRemove(prefix: string, index: number, plugins: readonly { name: string }[]): SlashFill | null {
+  return cycleEntries(filterPluginNames(prefix, plugins), index, (name, ambiguous) => (ambiguous ? `/plugin remove ${name}` : `/plugin remove ${name} `));
+}
+
+export function cycleEntries(
+  matches: readonly { name: string }[],
+  index: number,
+  fill: (name: string, ambiguous: boolean) => string,
+): SlashFill | null {
   if (!matches.length) return null;
   const count = matches.length;
   const wrapped = ((index % count) + count) % count;
@@ -39,11 +64,19 @@ export function cycleSlash(prefix: string, index: number): {
   if (!chosen) return null;
   const ambiguous = count > 1;
   return {
-    text: ambiguous ? `/${chosen.name}` : `/${chosen.name} `,
+    text: fill(chosen.name, ambiguous),
     index: wrapped,
-    names: matches.map((command) => command.name),
+    names: matches.map((item) => item.name),
     ambiguous,
   };
+}
+
+/** Window a menu the way the slash list does: keep the highlight in view, at most `size` rows. */
+export function visibleSlash<T>(rows: T[], index: number, size = 6): { rows: T[]; selected: number } {
+  if (!rows.length) return { rows: [], selected: 0 };
+  const clamped = Math.max(0, Math.min(index, rows.length - 1));
+  const start = Math.max(0, Math.min(Math.max(0, clamped - 1), Math.max(0, rows.length - size)));
+  return { rows: rows.slice(start, start + size), selected: clamped - start };
 }
 
 /** Selected rows use one tone for the command and the whole description. */
@@ -85,16 +118,3 @@ function wrapWords(text: string, width: number): string[] {
   return lines.length ? lines : [""];
 }
 
-function fitWidth(text: string, width: number): string {
-  if (displayWidth(text) <= width) return text;
-  const budget = Math.max(1, width - 1);
-  let out = "";
-  let used = 0;
-  for (const part of graphemes(text)) {
-    const size = displayWidth(part.segment);
-    if (used + size > budget) break;
-    out += part.segment;
-    used += size;
-  }
-  return `${out}…`;
-}

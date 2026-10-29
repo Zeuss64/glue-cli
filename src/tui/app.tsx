@@ -8,7 +8,8 @@ import { runAgentTurn, type AgentHooks, type PermissionChoice, type PermissionPr
 import { ensureGlobalConfigForSession, type AppConfig } from "../config.js";
 import { effortSetMessage, normalizeEffort, type EffortLevel } from "../effort.js";
 import {
-  filterCommands,
+  completionEntries,
+  completionSpec,
   gitText,
   helpLines,
   isImmediateCommand,
@@ -19,13 +20,14 @@ import {
   type CommandHost,
 } from "../commands.js";
 import { listProjectFiles, completePath } from "../files.js";
+import { listPlugins, type PluginRecord } from "../plugins.js";
 import { createId } from "../id.js";
 import { createLlmClient } from "../llm/client.js";
 import { expandMentions, mentionQuery } from "../mentions.js";
 import { isPermissionMode, nextPermissionState, type ApprovalMode } from "../permissions.js";
 import { buildSystemPrompt, memoryPath } from "../prompt.js";
 import { writeUiSettings } from "../settings.js";
-import { discoverSkills, resolveSkill, toActiveSkill, type ActiveSkill } from "../skills.js";
+import { discoverSkills, resolveSkill, skillCatalogEntries, toActiveSkill, type ActiveSkill, type Skill } from "../skills.js";
 import {
   addTokenUsage,
   buildStatusLinePayload,
@@ -58,7 +60,7 @@ import { useConsoleInput } from "./console-input.js";
 import { openEffortPicker, reduceEffortPicker, type EffortPickerState } from "./effort-picker.js";
 import { prevGrapheme } from "./text.js";
 import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollHint, transcriptBudget, transcriptLineCount, transcriptWindow, WHEEL_LINES, type SizeMemory } from "./viewport.js";
-import { cycleSlash, slashTabIndex, type SlashCycle } from "./complete.js";
+import { cyclePluginRemove, cycleSkillArg, cycleSlash, slashTabIndex, visibleSlash, type SlashCycle } from "./complete.js";
 import { statusBarLine } from "./footer.js";
 import { imeAnchor, statusAreaRows, wrappedRowCount } from "./ime.js";
 import { isEffortPickerShortcut, MOUSE_TRACKING_ON, pickerSurface } from "./keys.js";
@@ -73,6 +75,7 @@ import {
   PermissionDialog,
   PromptBox,
   ResumePicker,
+  SkillPicker,
   SlashMenu,
   Spinner,
   StatusBar,
@@ -82,6 +85,7 @@ import {
   CommandHelp,
 } from "./components.js";
 import { isModelDraft, modelWindow, openModelPicker, reduceModelPicker, type ModelPickerState } from "./model-picker.js";
+import { filterSkillPicker, openSkillPicker as openSkillPickerState, reduceSkillPicker, type SkillPickerState } from "./skill-picker.js";
 import { NAMED_ACCENTS, THEMES, textInk, type Theme } from "./theme.js";
 
 export interface Boot {
@@ -128,7 +132,8 @@ type Picker =
   | { kind: "model"; state: ModelPickerState }
   | { kind: "effort"; state: EffortPickerState }
   | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
-  | { kind: "rewind"; rows: Checkpoint[]; selected: number };
+  | { kind: "rewind"; rows: Checkpoint[]; selected: number }
+  | { kind: "skill"; state: SkillPickerState };
 
 export async function startTui(boot: Boot): Promise<void> {
   ensureGlobalConfigForSession();
@@ -208,6 +213,7 @@ function App({ boot }: { boot: Boot }) {
   const [rev, setRev] = useState<{ query: string; index: number; prev: EditorState } | null>(null);
   const [branch, setBranch] = useState<string | undefined>(() => gitBranch(boot.config.workspace));
   const [cwdLabel, setCwdLabel] = useState(() => shorten(boot.config.workspace));
+  const [skillEpoch, setSkillEpoch] = useState(0);
 
   const itemsRef = useRef<TranscriptItem[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -253,6 +259,9 @@ function App({ boot }: { boot: Boot }) {
   const editorRef = useRef(editor);
   const slashIndexRef = useRef(0);
   const completionRef = useRef<SlashCycle | null>(null);
+  const slashArmedRef = useRef(false);
+  const skillsRef = useRef<Skill[]>([]);
+  const pluginsRef = useRef<PluginRecord[]>([]);
   const commandHelpRef = useRef(false);
   const sizeMem = useRef<SizeMemory>({
     rows: stdout?.rows && stdout.rows > 1 ? stdout.rows : 0,
@@ -266,6 +275,9 @@ function App({ boot }: { boot: Boot }) {
     const resolved = typeof next === "function" ? next(editorRef.current) : next;
     editorRef.current = resolved;
     setEditorState(resolved);
+    const armed = resolved.text.startsWith("/");
+    if (armed && !slashArmedRef.current) refreshSkills();
+    slashArmedRef.current = armed;
   }
   const phaseRef = useRef(phase);
   const runTurnRef = useRef<(text: string, opts?: TurnOpts) => Promise<void>>(async () => {});
@@ -306,18 +318,26 @@ function App({ boot }: { boot: Boot }) {
   }, [themeName, accent]);
 
   const placeholder = useMemo(() => suggest(boot.config.workspace), [boot.config.workspace]);
+  const skillSnapshot = useMemo(
+    () => loadSkillSnapshot(workspaceRef.current, glueHomeRef.current || homedir()),
+    [skillEpoch],
+  );
+  skillsRef.current = skillSnapshot.skills;
+  pluginsRef.current = skillSnapshot.plugins;
+
+  function refreshSkills(): void {
+    const next = loadSkillSnapshot(workspaceRef.current, glueHomeRef.current || homedir());
+    skillsRef.current = next.skills;
+    pluginsRef.current = next.plugins;
+    setSkillEpoch((epoch) => epoch + 1);
+  }
 
   function skillPromptParts(): { skillCatalog?: Array<{ id: string; description: string }>; activeSkill?: { id: string; body: string } } {
-    try {
-      const skills = discoverSkills({ workspace: workspaceRef.current, home: homedir() });
-      const active = activeSkillRef.current;
-      return {
-        skillCatalog: skills.map((skill) => ({ id: skill.id, description: skill.description })),
-        activeSkill: active ? { id: active.id, body: active.body } : undefined,
-      };
-    } catch {
-      return {};
-    }
+    const active = activeSkillRef.current;
+    return {
+      skillCatalog: skillCatalogEntries(skillsRef.current),
+      activeSkill: active ? { id: active.id, body: active.body } : undefined,
+    };
   }
 
   function rebuildSystem(): void {
@@ -532,6 +552,16 @@ function App({ boot }: { boot: Boot }) {
       commitEditor(emptyEditor(editorRef.current.vim));
       setPickerBoth({ kind: "effort", state: openEffortPicker(effortRef.current, ultracodeRef.current) });
     },
+    openSkillPicker: () => {
+      closeModelDraft();
+      commitEditor(emptyEditor(editorRef.current.vim));
+      refreshSkills();
+      setPickerBoth({ kind: "skill", state: openSkillPickerState(skillsRef.current) });
+    },
+    onPluginsChanged: () => {
+      refreshSkills();
+      rebuildSystem();
+    },
     setEffort: (level) => applySelection({ effort: level, ultracode: ultracodeRef.current }),
     setUltracode: (on) => applySelection({ effort: effortRef.current, ultracode: on }),
     setMode: (next) => {
@@ -699,6 +729,7 @@ function App({ boot }: { boot: Boot }) {
       ctxRef.current.shellCwd = ctxRef.current.sandbox.primary;
       setCwdLabel(shorten(abs));
       setBranch(gitBranch(abs));
+      refreshSkills();
       rebuildSystem();
       system(`Workspace is now ${abs}`);
     },
@@ -1099,10 +1130,8 @@ function App({ boot }: { boot: Boot }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const slashMatches =
-    editor.text.startsWith("/") && !editor.text.slice(1).includes(" ") && !isModelDraft(editor.text)
-      ? filterCommands(editor.text.slice(1))
-      : [];
+  const slashSpec = isModelDraft(editor.text) ? null : completionSpec(editor.text);
+  const slashMatches = slashSpec ? completionEntries(slashSpec, skillSnapshot.skills, skillSnapshot.plugins) : [];
   const modelList = picker?.kind === "model" ? picker.state : modelDraft;
   const resumeView = picker?.kind === "resume" ? resumePickerView(picker.state) : null;
   const mention = mentionQuery(editor.text, editor.cursor);
@@ -1294,8 +1323,7 @@ function App({ boot }: { boot: Boot }) {
         setModelDraft(state);
       }
     } else if (modelDraftRef.current) closeModelDraft();
-    const slashQuery = result.state.text.startsWith("/") ? result.state.text.slice(1) : "";
-    if (slashQuery && !slashQuery.includes(" ") && !k.up && !k.down && result.effect !== "complete") setSlash(0);
+    if (!k.up && !k.down && result.effect !== "complete" && completionSpec(result.state.text) && !isModelDraft(result.state.text)) setSlash(0);
     if (result.effect !== "complete") completionRef.current = null;
     if (!result.effect) return;
     void applyEffect(result.effect, result.state);
@@ -1409,6 +1437,29 @@ function App({ boot }: { boot: Boot }) {
         return;
       }
       setPickerBoth({ kind: "effort", state: next.state });
+      return;
+    }
+    if (current.kind === "skill") {
+      const next = reduceSkillPicker(current.state, key);
+      if (next.effect?.type === "close") {
+        setPickerBoth(null);
+        return;
+      }
+      if (next.effect?.type === "fill") {
+        setPickerBoth(null);
+        const text = `/skill ${next.effect.id} `;
+        commitEditor({ ...emptyEditor(editorRef.current.vim), text, cursor: text.length });
+        return;
+      }
+      if (next.effect?.type === "activate") {
+        const id = next.effect.id;
+        setPickerBoth(null);
+        void runSlashCommand(`/skill ${id}`, hostRef.current).catch((error: unknown) => {
+          system(error instanceof Error ? error.message : String(error), "error");
+        });
+        return;
+      }
+      setPickerBoth({ kind: "skill", state: next.state });
       return;
     }
     if (current.kind === "rewind") {
@@ -1593,19 +1644,27 @@ function App({ boot }: { boot: Boot }) {
       commitEditor({ ...state, text: placeholder, cursor: placeholder.length });
       return;
     }
-    if (state.text.startsWith("/") && !state.text.includes(" ") && !state.text.includes("\n")) {
+    const spec = isModelDraft(state.text) ? null : completionSpec(state.text);
+    if (spec) {
       const prior = completionRef.current;
-      const continuing = Boolean(prior && (state.text === `/${prior.lastName}` || state.text === `/${prior.lastName} `));
-      const prefix = continuing && prior ? prior.prefix : state.text.slice(1);
+      const continuing = Boolean(prior && prior.kind === spec.kind && state.text === prior.lastText);
+      const prefix = continuing && prior ? prior.prefix : spec.query;
       const index = slashTabIndex({
         cycling: continuing,
         cycleIndex: prior ? prior.index + 1 : 0,
         selectedIndex: slashIndexRef.current,
       });
-      const next = cycleSlash(prefix, index);
+      const skills = skillsRef.current;
+      const plugins = pluginsRef.current;
+      const next =
+        spec.kind === "skill"
+          ? cycleSkillArg(prefix, index, skills)
+          : spec.kind === "plugin-remove"
+            ? cyclePluginRemove(prefix, index, plugins)
+            : cycleSlash(prefix, index, skills);
       if (next) {
         const name = next.names[next.index] ?? "";
-        completionRef.current = { prefix, index: next.index, lastName: name };
+        completionRef.current = { kind: spec.kind, prefix, index: next.index, lastName: name, lastText: next.text };
         setSlash(next.index);
         commitEditor({ ...state, text: next.text, cursor: next.text.length, anchor: null });
         return;
@@ -1632,7 +1691,7 @@ function App({ boot }: { boot: Boot }) {
     setScrollBoth(0);
     setHint("");
     if (text.startsWith("/")) {
-      const runnable = resolveSubmittedSlash(text, slashIndexRef.current);
+      const runnable = resolveSubmittedSlash(text, slashIndexRef.current, skillsRef.current, pluginsRef.current);
       completionRef.current = null;
       if (busyRef.current && !isImmediateCommand(runnable)) {
         queueRef.current.push(runnable);
@@ -1748,6 +1807,15 @@ function App({ boot }: { boot: Boot }) {
           selected={phase.selected}
         />
       ) : null}
+      {picker?.kind === "skill" ? (
+        <SkillPicker
+          theme={theme}
+          items={filterSkillPicker(picker.state.all, picker.state.query)}
+          selected={picker.state.selected}
+          query={picker.state.query}
+          columns={termCols}
+        />
+      ) : null}
       {slashMatches.length ? (
         <SlashMenu
           theme={theme}
@@ -1791,9 +1859,20 @@ function dropLast(text: string): string {
   return text.slice(0, prevGrapheme(text, text.length));
 }
 
-function visibleSlash<T>(rows: T[], index: number, size = 6): { rows: T[]; selected: number } {
-  const start = Math.max(0, Math.min(Math.max(0, index - 1), Math.max(0, rows.length - size)));
-  return { rows: rows.slice(start, start + size), selected: index - start };
+function loadSkillSnapshot(workspace: string, home: string): { skills: Skill[]; plugins: PluginRecord[] } {
+  let skills: Skill[] = [];
+  let plugins: PluginRecord[] = [];
+  try {
+    skills = discoverSkills({ workspace, home });
+  } catch {
+    skills = [];
+  }
+  try {
+    plugins = listPlugins({ workspace, home });
+  } catch {
+    plugins = [];
+  }
+  return { skills, plugins };
 }
 
 function shorten(target: string): string {
