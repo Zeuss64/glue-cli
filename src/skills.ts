@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from "node:fs";
 import path from "node:path";
-import { listPlugins, type PluginRecord } from "./plugins.js";
+import { listPlugins, readPluginManifest, resolveInsidePlugin, type PluginRecord } from "./plugins.js";
 
 export type SkillSource = "personal" | "project" | "plugin";
 
@@ -103,11 +103,87 @@ export function sanitizeSkillName(value: string): string {
   return cleaned;
 }
 
-function skillsFromPlugin(plugin: PluginRecord): Skill[] {
-  return [
-    ...readSkillRoot(path.join(plugin.path, "skills"), "plugin", plugin.name),
-    ...readSkillFile(path.join(plugin.path, "SKILL.md"), plugin.name, "plugin", plugin.name),
-  ];
+export function skillsFromPlugin(plugin: PluginRecord): Skill[] {
+  if (!plugin.path || !existsSync(plugin.path)) return [];
+  let listed: string[] = [];
+  try {
+    listed = readPluginManifest(plugin.path).skills;
+  } catch {
+    listed = [];
+  }
+  const found = new Map<string, Skill>();
+  addSkillFiles(found, [path.join(plugin.path, "SKILL.md")], plugin.name, plugin.name);
+  const skillsDir = path.join(plugin.path, "skills");
+  const shallow = collectSkillFiles(skillsDir, 1);
+  addSkillFiles(found, shallow, plugin.name);
+  const fromManifest: string[] = [];
+  for (const rel of listed) {
+    const abs = resolveInsidePlugin(plugin.path, rel);
+    if (!abs) continue;
+    fromManifest.push(...filesAt(abs));
+  }
+  addSkillFiles(found, fromManifest, plugin.name);
+  // A manifest skills list is the curated set. Without one, walk skills/ down to depth 3.
+  if (listed.length === 0) addSkillFiles(found, collectSkillFiles(skillsDir, 3), plugin.name);
+  return [...found.values()];
+}
+
+function addSkillFiles(into: Map<string, Skill>, files: readonly string[], pluginName: string, fallbackName?: string): void {
+  for (const file of files) {
+    const fallback = fallbackName ?? path.basename(path.dirname(file));
+    for (const skill of readSkillFile(file, fallback, "plugin", pluginName)) {
+      const key = pathKey(skill.path);
+      if (!into.has(key)) into.set(key, skill);
+    }
+  }
+}
+
+function filesAt(abs: string): string[] {
+  let info: ReturnType<typeof statSync>;
+  try {
+    info = statSync(abs);
+  } catch {
+    return [];
+  }
+  if (info.isFile()) return path.basename(abs) === "SKILL.md" ? [abs] : [];
+  if (!info.isDirectory()) return [];
+  const own = path.join(abs, "SKILL.md");
+  if (existsSync(own)) return [own];
+  const one = collectSkillFiles(abs, 1);
+  if (one.length) return one;
+  return collectSkillFiles(abs, 3);
+}
+
+function collectSkillFiles(root: string, maxDepth: number): string[] {
+  const out: string[] = [];
+  walkSkillDirs(root, 1, maxDepth, out);
+  return out;
+}
+
+function walkSkillDirs(dir: string, depth: number, maxDepth: number, out: string[]): void {
+  if (depth > maxDepth || !existsSync(dir)) return;
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.name || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    if (!entry.isDirectory()) continue;
+    const full = path.join(dir, entry.name);
+    const skill = path.join(full, "SKILL.md");
+    if (existsSync(skill)) out.push(skill);
+    else if (depth < maxDepth) walkSkillDirs(full, depth + 1, maxDepth, out);
+  }
+}
+
+function pathKey(file: string): string {
+  try {
+    return realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
 }
 
 function readSkillRoot(root: string, source: SkillSource, plugin?: string): Skill[] {

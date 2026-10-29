@@ -8,7 +8,8 @@ import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
 import { installPlugin, loadPlugin, parsePluginSource } from "../src/plugins.js";
 import { buildSystemPrompt } from "../src/prompt.js";
-import { discoverSkills, parseSkillMarkdown, resolveSkill, type ActiveSkill } from "../src/skills.js";
+import { discoverSkills, parseSkillMarkdown, resolveSkill, skillsFromPlugin, type ActiveSkill } from "../src/skills.js";
+import { MATTPOCOCK_SKILLS, writeMattPocockPlugin } from "./mattpocock-fixture.js";
 
 type SkillHost = CommandHost & { lines: string[]; activeSkill: ActiveSkill | null };
 
@@ -124,6 +125,66 @@ test("/skill loads a skill and /plugin load and install persist the library", as
   assert.equal(parsePluginSource("https://github.com/octo/notes").kind, "git");
   assert.throws(() => parsePluginSource("https://example.com/octo/notes"), /GitHub/);
 });
+
+test("a mattpocock-like plugin exposes the 27 manifest skills, not nested extras", () => {
+  assert.equal(MATTPOCOCK_SKILLS.length, 27);
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const library = mkdtempSync(path.join(tmpdir(), "glue-matt-"));
+  writeMattPocockPlugin(library);
+  const loaded = loadPlugin(library, { workspace });
+  assert.equal(loaded.name, "mattpocock-skills");
+  const skills = discoverSkills({ workspace, home });
+  assert.equal(skills.length, 27);
+  assert.equal(skills.every((skill) => skill.source === "plugin" && skill.id.startsWith("mattpocock-skills:")), true);
+  assert.equal(skills.some((skill) => skill.name === "old-thing" || skill.name === "unlisted"), false);
+  assert.equal(skillsFromPlugin(loaded).length, 27);
+  const tdd = resolveSkill(skills, "mattpocock-skills:tdd");
+  assert.ok(tdd && tdd !== "ambiguous");
+  assert.equal(tdd.name, "tdd");
+  assert.match(tdd.body, /Use tdd/);
+});
+
+test("nested plugin skills are found by a depth-3 fallback when the manifest lists no paths", () => {
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const library = mkdtempSync(path.join(tmpdir(), "glue-nested-"));
+  mkdirSync(path.join(library, ".claude-plugin"), { recursive: true });
+  writeFileSync(path.join(library, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "nested", description: "Buckets" }));
+  writeNested(library, ["a", "b", "c"], "deep");
+  writeNested(library, ["w", "x", "y", "z"], "too-deep");
+  writeNested(library, ["productivity", "grill-me"], "grill-me");
+  writeNested(library, ["flat"], "flat");
+  const loaded = loadPlugin(library, { workspace });
+  const ids = skillsFromPlugin(loaded).map((skill) => skill.id).sort();
+  assert.deepEqual(ids, ["nested:deep", "nested:flat", "nested:grill-me"]);
+});
+
+test("a manifest skill path may be one directory or a SKILL.md file", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const library = mkdtempSync(path.join(tmpdir(), "glue-paths-"));
+  mkdirSync(path.join(library, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    path.join(library, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "paths", skills: "./extra/only" }),
+  );
+  mkdirSync(path.join(library, "extra", "only"), { recursive: true });
+  writeFileSync(path.join(library, "extra", "only", "SKILL.md"), "---\nname: only\ndescription: Only\n---\n\nOnly.\n");
+  const filePlugin = mkdtempSync(path.join(tmpdir(), "glue-file-"));
+  mkdirSync(path.join(filePlugin, ".claude-plugin"), { recursive: true });
+  writeFileSync(path.join(filePlugin, "SKILL.md"), "---\nname: file\ndescription: File\n---\n\nFile body.\n");
+  writeFileSync(path.join(filePlugin, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "fileplug", skills: ["./SKILL.md"] }));
+  loadPlugin(library, { workspace });
+  loadPlugin(filePlugin, { workspace });
+  const ids = discoverSkills({ workspace, home }).map((skill) => skill.id).sort();
+  assert.deepEqual(ids, ["fileplug:file", "paths:only"]);
+});
+
+function writeNested(root: string, parts: string[], name: string): void {
+  const dir = path.join(root, "skills", ...parts);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${name}\n---\n\n${name} body.\n`);
+}
 
 function host(workspace: string, home: string, turns: string[]): SkillHost {
   const lines: string[] = [];

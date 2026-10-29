@@ -8,8 +8,8 @@ import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { autoEngaged, normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
-import { formatPluginList, installPlugin, loadPlugin, listPlugins, removePlugin } from "./plugins.js";
-import { discoverSkills, formatSkillList, resolveSkill, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
+import { formatPluginList, installPlugin, loadPlugin, listPlugins, parsePluginCommand, removePlugin, type PluginCommand, type PluginRecord, type PluginRunResult } from "./plugins.js";
+import { discoverSkills, formatSkillList, resolveSkill, skillsFromPlugin, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
 import {
   DEFAULT_SCRIPT_FIELDS,
   DESIGNED_STATUS_FIELDS,
@@ -58,6 +58,8 @@ export interface CommandHost {
   onStatusLineChange?(): void;
   /** Home for `~/.glue`. Tests pass a temp directory. */
   home?: string;
+  /** Test seam. `/plugin install` uses this instead of `git`. */
+  pluginRun?(command: string, args: string[]): PluginRunResult;
   activeSkill?: ActiveSkill | null;
   setActiveSkill?(skill: ActiveSkill | null): void;
   push(text: string, kind?: "system" | "error"): void;
@@ -642,47 +644,43 @@ async function activateSkill(skill: Skill, request: string, host: CommandHost): 
 function applyPlugin(args: string, host: CommandHost): void {
   const home = host.home ?? homedir();
   const workspace = host.workspace;
-  const trimmed = args.trim();
-  if (!trimmed || trimmed === "list" || trimmed === "列表") {
+  let parsed: PluginCommand;
+  try {
+    parsed = parsePluginCommand(args);
+  } catch (error) {
+    host.push(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
+  if (parsed.action === "list") {
     host.push(formatPluginList(listPlugins({ home, workspace })));
     return;
   }
-  const space = trimmed.search(/\s/);
-  const sub = (space === -1 ? trimmed : trimmed.slice(0, space)).toLowerCase();
-  const target = space === -1 ? "" : trimmed.slice(space + 1).trim();
   try {
-    if (sub === "install" || sub === "add") {
-      if (!target) {
-        host.push("用法：/plugin install <owner/repo|目录>", "error");
-        return;
-      }
-      const record = installPlugin(target, { home, workspace });
-      host.push(`已安装插件 ${record.name}（${record.scope}）。/skill 查看技能。`);
+    if (parsed.action === "install") {
+      const record = installPlugin(parsed.source, { home, workspace, scope: parsed.scope, run: host.pluginRun });
+      host.push(pluginReadyLine("安装", record));
       return;
     }
-    if (sub === "load") {
-      if (!target) {
-        host.push("用法：/plugin load <目录>", "error");
-        return;
-      }
-      const record = loadPlugin(target, { workspace });
-      host.push(`已加载插件 ${record.name}：${record.path}`);
+    if (parsed.action === "load") {
+      const record = loadPlugin(parsed.source, { home, workspace, scope: parsed.scope });
+      host.push(pluginReadyLine("加载", record));
       return;
     }
-    if (sub === "remove" || sub === "uninstall" || sub === "rm") {
-      if (!target) {
-        host.push("用法：/plugin remove <name>", "error");
-        return;
-      }
-      const removed = removePlugin(target, { home, workspace });
-      host.push(`已移除插件 ${removed}。`);
-      return;
-    }
-    const record = installPlugin(trimmed, { home, workspace });
-    host.push(`已安装插件 ${record.name}。/skill 查看技能。`);
+    const removed = removePlugin(parsed.target, { home, workspace });
+    host.push(`已移除插件 ${removed}。`);
   } catch (error) {
     host.push(error instanceof Error ? error.message : String(error), "error");
   }
+}
+
+function pluginReadyLine(verb: "安装" | "加载", record: PluginRecord): string {
+  let count = 0;
+  try {
+    count = skillsFromPlugin(record).length;
+  } catch {
+    count = 0;
+  }
+  return `已${verb}插件 ${record.name}（${record.scope}），${count} 个技能。`;
 }
 
 function applyEffort(args: string, host: CommandHost): void {
