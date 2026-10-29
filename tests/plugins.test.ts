@@ -11,8 +11,10 @@ import {
   installPlugin,
   listPlugins,
   loadPlugin,
+  MarketplaceChoiceNeeded,
   parsePluginCommand,
   parsePluginSource,
+  readMarketplacePlugins,
   readPluginManifest,
   removePlugin,
   type PluginRunner,
@@ -210,6 +212,133 @@ test("manifest paths that escape the plugin root are ignored", () => {
   assert.equal(loaded.name, "boxed");
   assert.deepEqual(discoverSkills({ workspace, home }).map((skill) => skill.id), ["boxed:kept"]);
 });
+
+test("a marketplace with several plugins asks for one, and plugin@marketplace installs it", async () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "glue-secret-"));
+  mkdirSync(path.join(outside, "secret"), { recursive: true });
+  writeFileSync(path.join(outside, "secret", "SKILL.md"), "---\nname: secret\ndescription: Secret\n---\n\nSecret.\n");
+  const repo = mkdtempSync(path.join(tmpdir(), "glue-multi-"));
+  writeMultiMarket(repo, outside);
+
+  const listed = readMarketplacePlugins(repo) ?? [];
+  assert.deepEqual(listed.map((plugin) => plugin.name), ["one", "two"]);
+  assert.deepEqual(listed.map((plugin) => plugin.relative), ["plugins/one", "plugins/two"]);
+
+  assert.throws(
+    () => installPlugin(repo, { home, workspace }),
+    (error: unknown) => error instanceof MarketplaceChoiceNeeded && error.plugins.map((plugin) => plugin.name).join(",") === "one,two",
+  );
+  assert.equal(listPlugins({ home, workspace }).length, 0);
+
+  const session = host(workspace, home, () => ({ status: 0, stderr: "" }));
+  await runSlashCommand(`/plugin install ${repo}`, session);
+  assert.match(session.lines.at(-1) ?? "", /多个插件/);
+  assert.match(session.lines.at(-1) ?? "", /one/);
+  assert.match(session.lines.at(-1) ?? "", /two/);
+  assert.doesNotMatch(session.lines.at(-1) ?? "", /evil|secret|remote|link/);
+
+  let choice: { source: string; scope: string; plugins: Array<{ name: string; description: string }> } | undefined;
+  session.openPluginPicker = (next) => {
+    choice = next;
+  };
+  await runSlashCommand(`/plugin install ${repo} --scope project`, session);
+  assert.equal(choice?.source, repo);
+  assert.equal(choice?.scope, "project");
+  assert.deepEqual(choice?.plugins.map((plugin) => plugin.name), ["one", "two"]);
+  assert.equal(choice?.plugins[0]?.description, "First");
+  assert.equal(listPlugins({ home, workspace }).length, 0);
+
+  const installed = installPlugin(`two@${repo}`, { home, workspace, scope: "project" });
+  assert.equal(installed.name, "two");
+  assert.equal(installed.scope, "project");
+  assert.deepEqual(discoverSkills({ workspace, home }).map((skill) => skill.id), ["two:two"]);
+  assert.equal(existsSync(path.join(installed.path, "skills", "two", "SKILL.md")), true);
+  assert.equal(existsSync(path.join(installed.path, "secret", "SKILL.md")), false);
+
+  let clones = 0;
+  const git = host(workspace, home, (_command, args) => {
+    clones += 1;
+    assert.equal(args[0], "clone");
+    assert.equal(args[3], "https://github.com/octo/market.git");
+    writeMultiMarket(args[4] ?? "", outside);
+    return { status: 0, stderr: "" };
+  });
+  let gitChoice: { source: string; scope: string; plugins: Array<{ name: string }> } | undefined;
+  git.openPluginPicker = (next) => {
+    gitChoice = next;
+  };
+  await runSlashCommand("/plugin install octo/market --scope project", git);
+  assert.equal(clones, 1);
+  assert.equal(gitChoice?.source, "octo/market");
+  assert.equal(gitChoice?.scope, "project");
+  assert.deepEqual(gitChoice?.plugins.map((plugin) => plugin.name), ["one", "two"]);
+  await runSlashCommand("/plugin install missing@octo/market --scope project", git);
+  assert.match(git.lines.at(-1) ?? "", /没有插件 missing/);
+  await runSlashCommand("/plugin install one@octo/market --scope project", git);
+  assert.equal(clones, 3);
+  const fromGit = listPlugins({ home, workspace }).find((plugin) => plugin.source === "octo/market");
+  assert.equal(fromGit?.name, "one");
+  assert.equal(fromGit?.scope, "project");
+  assert.equal(discoverSkills({ workspace, home }).some((skill) => skill.id === "one:one"), true);
+  assert.equal(discoverSkills({ workspace, home }).some((skill) => skill.name === "secret"), false);
+});
+
+test("a relative marketplace source without a dot-slash installs that plugin", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const repo = mkdtempSync(path.join(tmpdir(), "glue-rel-"));
+  mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    path.join(repo, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({ name: "demo", plugins: [{ name: "pack", source: "pkg", description: "Pack" }] }),
+  );
+  mkdirSync(path.join(repo, "pkg", ".claude-plugin"), { recursive: true });
+  writeFileSync(path.join(repo, "pkg", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "pack" }));
+  mkdirSync(path.join(repo, "pkg", "skills", "alpha"), { recursive: true });
+  writeFileSync(path.join(repo, "pkg", "skills", "alpha", "SKILL.md"), "---\nname: alpha\ndescription: Alpha\n---\n\nAlpha.\n");
+  mkdirSync(path.join(repo, "skills", "decoy"), { recursive: true });
+  writeFileSync(path.join(repo, "skills", "decoy", "SKILL.md"), "---\nname: decoy\ndescription: Decoy\n---\n\nDecoy.\n");
+  const installed = installPlugin(repo, { home, workspace });
+  assert.equal(installed.name, "pack");
+  assert.equal(discoverSkills({ workspace, home }).some((skill) => skill.name === "decoy"), false);
+  assert.equal(discoverSkills({ workspace, home }).some((skill) => skill.id === "pack:alpha"), true);
+});
+
+function writeMultiMarket(repo: string, outside: string): void {
+  mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    path.join(repo, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({
+      name: "multi",
+      plugins: [
+        { name: "one", source: "./plugins/one", description: "First" },
+        { name: "Two", source: { path: "plugins/two" }, description: "Second" },
+        { name: "evil", source: "../secret" },
+        { name: "abs", source: outside },
+        { name: "dotdot", source: "plugins/../../secret" },
+        { name: "remote", source: { source: "github", repo: "octo/remote" } },
+        { name: "link", source: "./plugins/link" },
+      ],
+    }),
+  );
+  writeMarketPlugin(path.join(repo, "plugins", "one"), "one");
+  writeMarketPlugin(path.join(repo, "plugins", "two"), "two");
+  mkdirSync(path.join(repo, "plugins"), { recursive: true });
+  try {
+    symlinkSync(outside, path.join(repo, "plugins", "link"), "dir");
+  } catch {
+    /* a second clone of the same fixture may already have the link */
+  }
+}
+
+function writeMarketPlugin(root: string, name: string): void {
+  mkdirSync(path.join(root, ".claude-plugin"), { recursive: true });
+  writeFileSync(path.join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ name }));
+  mkdirSync(path.join(root, "skills", name), { recursive: true });
+  writeFileSync(path.join(root, "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: ${name}\n---\n\n${name} body.\n`);
+}
 
 function host(workspace: string, home: string, pluginRun: PluginRunner): CommandHost & { lines: string[] } {
   const lines: string[] = [];

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { skillsFromPlugin } from "./skills.js";
 
@@ -56,10 +57,27 @@ interface ManifestInfo {
   namedByFile: boolean;
 }
 
-interface MarketPlugin {
+export interface MarketplacePlugin {
   name: string;
-  /** Empty string means the repository root. */
+  description: string;
+  /** Empty string means the marketplace root. */
   relative: string;
+  path: string;
+}
+
+/** Thrown when a marketplace lists more than one plugin and the command did not name one. */
+export class MarketplaceChoiceNeeded extends Error {
+  readonly source: string;
+  readonly scope: PluginScope;
+  readonly plugins: Array<{ name: string; description: string }>;
+
+  constructor(source: string, scope: PluginScope, plugins: Array<{ name: string; description: string }>) {
+    super(formatMarketplaceChoice(source, plugins));
+    this.name = "MarketplaceChoiceNeeded";
+    this.source = source;
+    this.scope = scope;
+    this.plugins = plugins;
+  }
 }
 
 export function userPluginRegistry(home: string): string {
@@ -79,7 +97,7 @@ export function parsePluginCommand(args: string): PluginCommand {
   if (sub === "list" || sub === "列表") throw new Error("用法：/plugin list");
   if (sub === "install" || sub === "add") {
     const parsed = takeScope(rest, "user");
-    if (!parsed.source) throw new Error("用法：/plugin install <owner/repo|目录> [--scope user|project]");
+    if (!parsed.source) throw new Error("用法：/plugin install <owner/repo|插件@owner/repo|目录> [--scope user|project]");
     return { action: "install", source: parsed.source, scope: parsed.scope };
   }
   if (sub === "load") {
@@ -93,7 +111,25 @@ export function parsePluginCommand(args: string): PluginCommand {
     if (!target) throw new Error("用法：/plugin remove <name|来源>");
     return { action: "remove", target };
   }
-  throw new Error("未知的插件命令。用法：/plugin list，/plugin install <owner/repo|目录> [--scope user|project]，/plugin load <目录> [--scope user|project]，/plugin remove <name|来源>。");
+  throw new Error("未知的插件命令。用法：/plugin list，/plugin install <owner/repo|插件@owner/repo|目录> [--scope user|project]，/plugin load <目录> [--scope user|project]，/plugin remove <name|来源>。");
+}
+
+/** `plugin@owner/repo` selects one entry. A bare `owner/repo` does not. `git@github.com:...` stays a URL. */
+export function splitPluginRef(input: string): { plugin?: string; marketplace: string } {
+  const raw = input.trim().replace(/^['"]|['"]$/g, "");
+  if (!raw || raw.startsWith("git@") || raw.startsWith("ssh://")) return { marketplace: raw };
+  const at = raw.indexOf("@");
+  if (at <= 0) return { marketplace: raw };
+  const plugin = raw.slice(0, at).trim();
+  const marketplace = raw.slice(at + 1).trim();
+  if (!plugin || !marketplace || /[\\/]/.test(plugin)) return { marketplace: raw };
+  return { plugin, marketplace };
+}
+
+export function formatMarketplaceChoice(source: string, plugins: readonly { name: string; description: string }[]): string {
+  const lines = [`${source} 有多个插件。用 /plugin install <插件>@${source} 安装其中一个：`];
+  for (const plugin of plugins) lines.push(plugin.description ? `  ${plugin.name}  ${plugin.description}` : `  ${plugin.name}`);
+  return lines.join("\n");
 }
 
 export function parsePluginSource(input: string): { kind: "git"; name: string; url: string; source: string } | { kind: "local"; source: string } {
@@ -134,34 +170,26 @@ export function installPlugin(
 ): PluginRecord {
   const scope = opts.scope ?? "user";
   assertScope(scope);
-  const parsed = parsePluginSource(source);
+  const requested = splitPluginRef(source);
+  if (requested.plugin && !sanitizePluginName(requested.plugin)) throw new Error("插件名不可用。");
+  const parsed = parsePluginSource(requested.marketplace);
   if (parsed.kind === "git") {
-    const dest = pluginInstallDir(scope, parsed.name, opts);
-    mkdirSync(path.dirname(dest), { recursive: true });
-    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+    const staging = mkdtempSync(path.join(tmpdir(), "glue-plugin-"));
     const run = opts.run ?? defaultRun;
-    const result = run("git", ["clone", "--depth", "1", parsed.url, dest]);
-    if (result.status !== 0) {
-      if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
-      throw new Error((result.stderr || `git clone failed for ${parsed.url}`).trim());
+    try {
+      const result = run("git", ["clone", "--depth", "1", parsed.url, staging]);
+      if (result.status !== 0) throw new Error((result.stderr || `git clone failed for ${parsed.url}`).trim());
+      const located = resolveInstallTarget(staging, requested.plugin, parsed.source, scope, parsed.name);
+      const folder = requested.plugin ? located.name : parsed.name;
+      return commitPlugin(located.path, located.name, parsed.source, folder, scope, opts);
+    } finally {
+      if (existsSync(staging)) rmSync(staging, { recursive: true, force: true });
     }
-    const located = locatePlugin(dest);
-    const record: StoredPlugin = { name: located.name, source: parsed.source, path: located.path };
-    const file = registryFile(scope, opts);
-    writeRegistry(file, upsert(readStored(file), record));
-    return { ...record, scope };
   }
   const abs = path.resolve(opts.workspace, parsed.source);
   assertDirectory(abs, parsed.source);
-  const located = locatePlugin(abs);
-  const dest = pluginInstallDir(scope, located.name, opts);
-  mkdirSync(path.dirname(dest), { recursive: true });
-  if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
-  cpSync(located.path, dest, { recursive: true, dereference: true, filter: skipHeavy });
-  const record: StoredPlugin = { name: located.name, source: abs, path: dest };
-  const file = registryFile(scope, opts);
-  writeRegistry(file, upsert(readStored(file), record));
-  return { ...record, scope };
+  const located = resolveInstallTarget(abs, requested.plugin, requested.marketplace, scope, path.basename(abs));
+  return commitPlugin(located.path, located.name, abs, located.name, scope, opts);
 }
 
 export function loadPlugin(source: string, opts: { workspace: string; home?: string; scope?: PluginScope }): PluginRecord {
@@ -315,33 +343,102 @@ function registryFile(scope: PluginScope, opts: { home: string; workspace: strin
   return scope === "project" ? projectPluginRegistry(opts.workspace) : userPluginRegistry(opts.home);
 }
 
-function locatePlugin(dir: string): { name: string; path: string } {
-  const market = readSinglePluginMarketplace(dir);
-  let root = dir;
-  if (market?.relative) {
-    const resolved = resolveInsidePlugin(dir, market.relative);
-    if (resolved && isDirectory(resolved)) root = resolved;
-  }
-  const info = readPluginManifestInfo(root);
-  const marketName = market ? sanitizePluginName(market.name) : "";
-  const name = info.namedByFile ? info.manifest.name : marketName || info.manifest.name;
-  if (!name) throw new Error(`插件目录名不可用：${dir}`);
-  return { name, path: root };
+function commitPlugin(
+  fromPath: string,
+  name: string,
+  source: string,
+  folder: string,
+  scope: PluginScope,
+  opts: { home: string; workspace: string },
+): PluginRecord {
+  const dest = pluginInstallDir(scope, folder, opts);
+  mkdirSync(path.dirname(dest), { recursive: true });
+  if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+  cpSync(fromPath, dest, { recursive: true, dereference: true, filter: skipHeavy });
+  const record: StoredPlugin = { name, source, path: dest };
+  const file = registryFile(scope, opts);
+  writeRegistry(file, upsert(readStored(file), record));
+  return { ...record, scope };
 }
 
-function readSinglePluginMarketplace(dir: string): MarketPlugin | undefined {
+function resolveInstallTarget(
+  root: string,
+  pluginName: string | undefined,
+  sourceLabel: string,
+  scope: PluginScope,
+  fallbackName: string,
+): { name: string; path: string } {
+  const market = readMarketplacePlugins(root);
+  if (market && market.length > 1) {
+    if (!pluginName) {
+      throw new MarketplaceChoiceNeeded(
+        sourceLabel,
+        scope,
+        market.map((plugin) => ({ name: plugin.name, description: plugin.description })),
+      );
+    }
+    const chosen = chooseMarketplacePlugin(market, pluginName);
+    return namedPlugin(chosen.path, chosen.name);
+  }
+  if (market && market.length === 1) {
+    const only = market[0];
+    if (only && pluginName && sanitizePluginName(pluginName) !== only.name) {
+      throw new Error(`marketplace 里没有插件 ${pluginName}。可选：${only.name}。`);
+    }
+    return locatePlugin(root, fallbackName);
+  }
+  if (pluginName) throw new Error(`${sourceLabel} 没有可选的 marketplace 插件 ${pluginName}。`);
+  return locatePlugin(root, fallbackName);
+}
+
+function chooseMarketplacePlugin(plugins: readonly MarketplacePlugin[], pluginName: string): MarketplacePlugin {
+  const wanted = sanitizePluginName(pluginName);
+  const matches = plugins.filter((plugin) => plugin.name === wanted);
+  const names = plugins.map((plugin) => plugin.name).join("、");
+  if (matches.length === 1 && matches[0]) return matches[0];
+  if (!matches.length) throw new Error(`marketplace 里没有插件 ${pluginName}。可选：${names}。`);
+  throw new Error(`插件 ${pluginName} 在 marketplace 里不唯一。`);
+}
+
+function locatePlugin(dir: string, fallbackName?: string): { name: string; path: string } {
+  const market = readMarketplacePlugins(dir);
+  if (market?.length === 1 && market[0]) return namedPlugin(market[0].path, market[0].name);
+  return namedPlugin(dir, fallbackName || path.basename(dir));
+}
+
+function namedPlugin(pluginPath: string, marketName: string): { name: string; path: string } {
+  const info = readPluginManifestInfo(pluginPath);
+  const name = info.namedByFile ? info.manifest.name : sanitizePluginName(marketName) || info.manifest.name;
+  if (!name) throw new Error(`插件目录名不可用：${pluginPath}`);
+  return { name, path: pluginPath };
+}
+
+/** Relative marketplace entries that stay inside `dir`. Missing file returns undefined. */
+export function readMarketplacePlugins(dir: string): MarketplacePlugin[] | undefined {
+  const entries = readMarketplaceDocument(dir);
+  if (!entries) return undefined;
+  const out: MarketplacePlugin[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const relative = relativeMarketplaceSource(record.source);
+    if (relative === undefined) continue;
+    const pluginPath = marketplacePluginPath(dir, relative);
+    if (!pluginPath) continue;
+    const fallback = sanitizePluginName(path.basename(pluginPath));
+    const name = sanitizePluginName(typeof record.name === "string" ? record.name : "") || fallback;
+    if (!name) continue;
+    out.push({ name, description: asString(record.description), relative, path: pluginPath });
+  }
+  return out;
+}
+
+function readMarketplaceDocument(dir: string): unknown[] | undefined {
   for (const file of [path.join(dir, ".glue-plugin", "marketplace.json"), path.join(dir, ".claude-plugin", "marketplace.json")]) {
     if (!existsSync(file)) continue;
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-      if (!Array.isArray(parsed.plugins) || parsed.plugins.length !== 1) return undefined;
-      const entry = parsed.plugins[0];
-      if (!entry || typeof entry !== "object") return undefined;
-      const record = entry as Record<string, unknown>;
-      const name = typeof record.name === "string" ? record.name : "";
-      const relative = relativeMarketplaceSource(record.source);
-      if (relative === undefined) return undefined;
-      return { name, relative };
+      return Array.isArray(parsed.plugins) ? parsed.plugins : undefined;
     } catch {
       return undefined;
     }
@@ -349,15 +446,33 @@ function readSinglePluginMarketplace(dir: string): MarketPlugin | undefined {
   return undefined;
 }
 
+function marketplacePluginPath(root: string, relative: string): string | undefined {
+  if (!relative) {
+    try {
+      const real = realpathSync(root);
+      return isDirectory(real) ? real : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const resolved = resolveInsidePlugin(root, relative);
+  if (!resolved || !isDirectory(resolved)) return undefined;
+  return resolved;
+}
+
 function relativeMarketplaceSource(source: unknown): string | undefined {
   const spec = marketplaceSourceSpec(source);
   if (spec === undefined) return undefined;
-  if (spec === "." || spec === "./") return "";
-  if (!spec.startsWith("./") && !spec.startsWith(".\\")) return undefined;
-  const cleaned = spec.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "");
-  if (!cleaned) return "";
-  if (cleaned.split(/[\\/]/).some((part) => !part || part === "." || part === "..")) return undefined;
-  return cleaned;
+  const trimmed = spec.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === "." || trimmed === "./" || trimmed === ".\\") return "";
+  if (path.isAbsolute(trimmed) || path.win32.isAbsolute(trimmed) || path.posix.isAbsolute(trimmed)) return undefined;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed)) return undefined;
+  const normalized = trimmed.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  if (!normalized) return "";
+  const segments = normalized.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return undefined;
+  return segments.join("/");
 }
 
 function marketplaceSourceSpec(source: unknown): string | undefined {
@@ -367,7 +482,7 @@ function marketplaceSourceSpec(source: unknown): string | undefined {
   const kind = typeof record.source === "string" ? record.source.trim() : "";
   if (/^(github|git|url)$/i.test(kind)) return undefined;
   if (typeof record.path === "string" && record.path.trim()) return record.path.trim();
-  if (kind.startsWith(".")) return kind;
+  if (kind && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(kind)) return kind;
   return undefined;
 }
 

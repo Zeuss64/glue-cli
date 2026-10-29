@@ -5,11 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { filterSlashEntries, helpText, isImmediateCommand, runSlashCommand, type CommandHost } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
-import { emptyRules } from "../src/permissions.js";
 import { installPlugin, loadPlugin, parsePluginSource } from "../src/plugins.js";
 import { buildSystemPrompt } from "../src/prompt.js";
-import { discoverSkills, formatSkillList, parseSkillMarkdown, resolveSkill, skillCatalogEntries, skillsFromPlugin, type ActiveSkill, type Skill } from "../src/skills.js";
+import { decidePermission, emptyRules, isMutating } from "../src/permissions.js";
+import { Sandbox } from "../src/sandbox.js";
+import { discoverSkills, formatSkillList, parseSkillMarkdown, resolveSkill, skillBaseDirectory, skillCatalogEntries, skillsFromPlugin, type ActiveSkill, type Skill } from "../src/skills.js";
 import { displayWidth } from "../src/tui/text.js";
+import { toolDefinitions } from "../src/tools/defs.js";
+import { executeTool, type ToolContext } from "../src/tools/execute.js";
 import { MATTPOCOCK_SKILLS, writeMattPocockPlugin } from "./mattpocock-fixture.js";
 
 type SkillHost = CommandHost & { lines: string[]; activeSkill: ActiveSkill | null };
@@ -258,6 +261,97 @@ test("formatSkillList collapses a description to one line and truncates by displ
   assert.match(line, /…/);
   assert.doesNotMatch(line, /END/);
   assert.ok(displayWidth(line) <= 48);
+});
+
+test("YAML folded and literal descriptions keep their text", () => {
+  const folded = parseSkillMarkdown(
+    ["---", "name: fold", "description: >", "  Prepare a release", "  note for the diff.", "---", "", "Do the thing.", ""].join("\n"),
+    "ignored",
+  );
+  assert.equal(folded?.name, "fold");
+  assert.equal(folded?.description, "Prepare a release note for the diff.");
+  assert.equal(folded?.description.includes(">"), false);
+  assert.match(folded?.body ?? "", /Do the thing/);
+
+  const literal = parseSkillMarkdown(
+    ["---", "name: lit", "description: |", "  alpha", "  beta", "user-invocable: false", 'argument-hint: "[file]"', "---", "", "Body stays.", ""].join("\n"),
+    "ignored",
+  );
+  assert.equal(literal?.description, "alpha beta");
+  assert.equal(literal?.userInvocable, false);
+  assert.equal(literal?.argumentHint, "[file]");
+  assert.match(literal?.body ?? "", /Body stays/);
+  assert.equal(literal?.body.includes("user-invocable"), false);
+
+  const bare = parseSkillMarkdown(
+    ["---", "name: bare", "description:", "  Prepare a release", "  note", "disable-model-invocation: true", "---", "", "Bare body.", ""].join("\n"),
+    "ignored",
+  );
+  assert.equal(bare?.description, "Prepare a release note");
+  assert.equal(bare?.disableModelInvocation, true);
+  assert.match(bare?.body ?? "", /Bare body/);
+});
+
+test("the skill tool returns the body and the skill directory", async () => {
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  const skillDir = path.join(workspace, ".glue", "skills", "shown");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: shown\ndescription: shown skill\nargument-hint: <path>\n---\n\nShown body.\n");
+  writeFileSync(path.join(skillDir, "tests.md"), "sibling\n");
+  writeSkill(path.join(workspace, ".glue", "skills"), "quiet", "---\nname: quiet\ndescription: user types it\ndisable-model-invocation: true\n---\n\nQuiet body.\n");
+  writeSkill(path.join(workspace, ".glue", "skills"), "hidden", "---\nname: hidden\ndescription: model only\nuser-invocable: false\n---\n\nHidden body.\n");
+
+  const tool = toolDefinitions(false).find((item) => item.name === "skill");
+  assert.ok(tool);
+  assert.deepEqual((tool.parameters as { required?: string[] }).required, ["name"]);
+  assert.equal(isMutating("skill"), false);
+  assert.equal(decidePermission({ tool: "skill", mode: "plan", rules: emptyRules(), readOnly: true }), "allow");
+
+  const ctx: ToolContext = {
+    sandbox: new Sandbox([workspace]),
+    shellEnabled: false,
+    shellCwd: workspace,
+    readFiles: new Set(),
+    todos: [],
+    tasks: new Map(),
+    skillHome: home,
+  };
+  const loaded = await executeTool("skill", { name: "shown" }, ctx);
+  assert.equal(loaded.ok, true);
+  const base = skillBaseDirectory({ path: path.join(skillDir, "SKILL.md") });
+  assert.equal(loaded.output.startsWith(`Base directory for this skill: ${base}\n\n`), true);
+  assert.match(loaded.output, /Shown body/);
+  assert.equal(base, skillDir);
+  assert.equal(existsSync(path.join(base, "tests.md")), true);
+
+  const hidden = await executeTool("skill", { name: "hidden" }, ctx);
+  assert.equal(hidden.ok, true);
+  assert.match(hidden.output, /Hidden body/);
+  const quiet = await executeTool("skill", { name: "quiet" }, ctx);
+  assert.equal(quiet.ok, false);
+  assert.match(quiet.output, /No skill named quiet/);
+
+  const skills = discoverSkills({ workspace, home });
+  const prompt = buildSystemPrompt({
+    workspace,
+    profile: "default",
+    permissionMode: "default",
+    shellEnabled: false,
+    outputStyle: "normal",
+    skillCatalog: skillCatalogEntries(skills),
+  });
+  assert.match(prompt, /skill tool/);
+  assert.match(prompt, /shown: shown skill \(<path>\)/);
+  assert.match(prompt, /hidden/);
+  assert.doesNotMatch(prompt, /quiet/);
+  assert.doesNotMatch(prompt, /Invoke one with \/skill/);
+
+  const turns: string[] = [];
+  const session = host(workspace, home, turns);
+  await runSlashCommand("/skill shown", session);
+  assert.match(session.activeSkill?.body ?? "", new RegExp(`Base directory for this skill: ${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(session.activeSkill?.body ?? "", /Shown body/);
 });
 
 function writeNested(root: string, parts: string[], name: string): void {

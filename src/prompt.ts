@@ -15,8 +15,8 @@ export interface PromptParts {
   goal?: string;
   /** When true, every task runs as a dynamic workflow via `spawn_subagent`. */
   ultracode?: boolean;
-  /** Name and description only. The body loads when a skill is active. */
-  skillCatalog?: Array<{ id: string; description: string }>;
+  /** Name and description only. The body loads through the skill tool or when a skill is active. */
+  skillCatalog?: Array<{ id: string; description: string; argumentHint?: string }>;
   activeSkill?: { id: string; body: string };
 }
 
@@ -83,8 +83,16 @@ export function buildSystemPrompt(parts: PromptParts): string {
     lines.push("", "## Project memory (AGENT.md)", memory.trim());
   }
   if (parts.skillCatalog?.length) {
-    const rows = parts.skillCatalog.slice(0, 40).map((skill) => `- ${skill.id}${skill.description ? `: ${skill.description}` : ""}`);
-    lines.push("", "## Skills", "Invoke one with /skill <id>. Follow a skill when the user asks for it or the description matches.", ...rows);
+    const rows = parts.skillCatalog.slice(0, 40).map((skill) => {
+      const hint = skill.argumentHint?.trim() ? ` (${skill.argumentHint.trim()})` : "";
+      return `- ${skill.id}${skill.description ? `: ${skill.description}` : ""}${hint}`;
+    });
+    lines.push(
+      "",
+      "## Skills",
+      "Call the skill tool with name set to the skill id. It returns the skill instructions and the skill directory. Follow a skill when the user asks for it or the description matches. You cannot type slash commands.",
+      ...rows,
+    );
   }
   if (parts.activeSkill?.body.trim()) {
     lines.push("", `## Active skill: ${parts.activeSkill.id}`, parts.activeSkill.body.trim());

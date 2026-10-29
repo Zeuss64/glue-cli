@@ -133,7 +133,8 @@ type Picker =
   | { kind: "effort"; state: EffortPickerState }
   | { kind: "resume"; state: ReturnType<typeof openResumePicker> }
   | { kind: "rewind"; rows: Checkpoint[]; selected: number }
-  | { kind: "skill"; state: SkillPickerState };
+  | { kind: "skill"; state: SkillPickerState }
+  | { kind: "plugin"; source: string; scope: "user" | "project"; plugins: Array<{ name: string; description: string }>; selected: number };
 
 export async function startTui(boot: Boot): Promise<void> {
   ensureGlobalConfigForSession();
@@ -295,6 +296,7 @@ function App({ boot }: { boot: Boot }) {
       bgRef.current = false;
       return true;
     },
+    skillHome: homedir(),
   });
 
   modeRef.current = mode;
@@ -311,6 +313,7 @@ function App({ boot }: { boot: Boot }) {
   phaseRef.current = phase;
   usageRef.current = usage;
   ctxRef.current.shellEnabled = shellEnabled;
+  ctxRef.current.skillHome = glueHomeRef.current || homedir();
 
   const theme = useMemo<Theme>(() => {
     const base = THEMES[themeName] ?? THEMES.dark;
@@ -332,7 +335,7 @@ function App({ boot }: { boot: Boot }) {
     setSkillEpoch((epoch) => epoch + 1);
   }
 
-  function skillPromptParts(): { skillCatalog?: Array<{ id: string; description: string }>; activeSkill?: { id: string; body: string } } {
+  function skillPromptParts(): { skillCatalog?: Array<{ id: string; description: string; argumentHint?: string }>; activeSkill?: { id: string; body: string } } {
     const active = activeSkillRef.current;
     return {
       skillCatalog: skillCatalogEntries(skillsRef.current),
@@ -557,6 +560,17 @@ function App({ boot }: { boot: Boot }) {
       commitEditor(emptyEditor(editorRef.current.vim));
       refreshSkills();
       setPickerBoth({ kind: "skill", state: openSkillPickerState(skillsRef.current) });
+    },
+    openPluginPicker: (choice) => {
+      closeModelDraft();
+      commitEditor(emptyEditor(editorRef.current.vim));
+      setPickerBoth({
+        kind: "plugin",
+        source: choice.source,
+        scope: choice.scope,
+        plugins: choice.plugins.map((plugin) => ({ name: plugin.name, description: plugin.description })),
+        selected: 0,
+      });
     },
     onPluginsChanged: () => {
       refreshSkills();
@@ -1462,6 +1476,23 @@ function App({ boot }: { boot: Boot }) {
       setPickerBoth({ kind: "skill", state: next.state });
       return;
     }
+    if (current.kind === "plugin") {
+      const count = current.plugins.length;
+      if (!count) return;
+      if (key.up) setPickerBoth({ ...current, selected: (current.selected + count - 1) % count });
+      else if (key.down) setPickerBoth({ ...current, selected: (current.selected + 1) % count });
+      else if (key.return) {
+        const plugin = current.plugins[Math.max(0, Math.min(current.selected, count - 1))];
+        const source = current.source;
+        const scope = current.scope;
+        setPickerBoth(null);
+        if (!plugin) return;
+        void runSlashCommand(`/plugin install ${plugin.name}@${source} --scope ${scope}`, hostRef.current).catch((error: unknown) => {
+          system(error instanceof Error ? error.message : String(error), "error");
+        });
+      }
+      return;
+    }
     if (current.kind === "rewind") {
       const count = current.rows.length;
       if (!count) return;
@@ -1814,6 +1845,15 @@ function App({ boot }: { boot: Boot }) {
           selected={picker.state.selected}
           query={picker.state.query}
           columns={termCols}
+        />
+      ) : null}
+      {picker?.kind === "plugin" ? (
+        <ChoiceDialog
+          theme={theme}
+          title="选择插件"
+          body={`/plugin install <插件>@${picker.source}`}
+          options={picker.plugins.map((plugin) => (plugin.description ? `${plugin.name} — ${plugin.description}` : plugin.name))}
+          selected={picker.selected}
         />
       ) : null}
       {slashMatches.length ? (

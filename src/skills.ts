@@ -46,16 +46,16 @@ export function parseSkillMarkdown(raw: string, fallbackName: string): {
   let disableModelInvocation = false;
   let argumentHint = "";
   if (match) {
-    const meta = match[1] ?? "";
+    const front = frontMap(match[1] ?? "");
     body = (match[2] ?? "").trim();
-    const named = sanitizeSkillName(frontValue(meta, "name"));
+    const named = sanitizeSkillName(front.get("name") ?? "");
     if (named) name = named;
-    description = oneLine(frontValue(meta, "description")).slice(0, 400);
-    const invoke = frontFlag(meta, "user-invocable");
+    description = oneLine(front.get("description") ?? "").slice(0, 400);
+    const invoke = frontFlag(front.get("user-invocable"));
     if (invoke !== undefined) userInvocable = invoke;
-    const model = frontFlag(meta, "disable-model-invocation");
+    const model = frontFlag(front.get("disable-model-invocation"));
     if (model !== undefined) disableModelInvocation = model;
-    argumentHint = oneLine(frontValue(meta, "argument-hint")).slice(0, 120);
+    argumentHint = oneLine(front.get("argument-hint") ?? "").slice(0, 120);
   } else {
     const line = body.split(/\r?\n/).map((item) => item.trim()).find((item) => item && !item.startsWith("#"));
     description = oneLine(line ?? "").slice(0, 240);
@@ -97,8 +97,18 @@ export function resolveSkill(skills: readonly Skill[], query: string): Skill | "
   return undefined;
 }
 
+/** Skill directory, so the model can open sibling files such as `tests.md` or `UI.md`. */
+export function skillBaseDirectory(skill: Pick<Skill, "path">): string {
+  return path.dirname(path.resolve(skill.path));
+}
+
+/** Body returned by the skill tool and stored on the active skill. */
+export function activatedSkillBody(skill: Pick<Skill, "path" | "body">): string {
+  return `Base directory for this skill: ${skillBaseDirectory(skill)}\n\n${skill.body.trim()}`;
+}
+
 export function toActiveSkill(skill: Skill): ActiveSkill {
-  return { id: skill.id, body: skill.body, description: skill.description };
+  return { id: skill.id, body: activatedSkillBody(skill), description: skill.description };
 }
 
 export function skillSourceLabel(skill: Pick<Skill, "source" | "plugin">): string {
@@ -106,7 +116,7 @@ export function skillSourceLabel(skill: Pick<Skill, "source" | "plugin">): strin
   return skill.source;
 }
 
-/** Collapse a multiline description to one line. YAML block scalars stay out of scope. */
+/** Collapse a multiline description to one line. */
 export function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -116,8 +126,12 @@ export function skillMenuSummary(skill: Pick<Skill, "source" | "plugin" | "descr
 }
 
 /** Names and descriptions the model may see. `disable-model-invocation` skills are omitted. */
-export function skillCatalogEntries(skills: readonly Skill[]): Array<{ id: string; description: string }> {
-  return skills.filter((skill) => !skill.disableModelInvocation).map((skill) => ({ id: skill.id, description: skill.description }));
+export function skillCatalogEntries(skills: readonly Skill[]): Array<{ id: string; description: string; argumentHint?: string }> {
+  return skills.filter((skill) => !skill.disableModelInvocation).map((skill) => ({
+    id: skill.id,
+    description: skill.description,
+    ...(skill.argumentHint ? { argumentHint: skill.argumentHint } : {}),
+  }));
 }
 
 export function formatSkillList(skills: readonly Skill[], columns = 80): string {
@@ -276,23 +290,158 @@ function readSkillFile(file: string, fallbackName: string, source: SkillSource, 
   }];
 }
 
-function frontValue(meta: string, key: string): string {
-  for (const line of meta.split(/\r?\n/)) {
-    const match = new RegExp(`^${key}\\s*:\\s*(.*)$`, "i").exec(line.trim());
-    if (!match) continue;
-    let value = (match[1] ?? "").trim().replace(/\s+#.*$/, "").trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return value.trim();
-  }
-  return "";
+interface BlockHeader {
+  style: "fold" | "literal";
+  chomp: "clip" | "strip" | "keep";
+  indent: number;
 }
 
-function frontFlag(meta: string, key: string): boolean | undefined {
-  const raw = frontValue(meta, key).toLowerCase();
-  if (!raw) return undefined;
-  if (raw === "true" || raw === "yes" || raw === "1" || raw === "on") return true;
-  if (raw === "false" || raw === "no" || raw === "0" || raw === "off") return false;
+/** Frontmatter values, including `>`, `|`, and an empty key whose value continues on indented lines. */
+function frontMap(meta: string): Map<string, string> {
+  const lines = meta.split(/\r?\n/);
+  const map = new Map<string, string>();
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (!line.trim() || line.trim().startsWith("#")) {
+      i += 1;
+      continue;
+    }
+    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
+    if (!match) {
+      i += 1;
+      continue;
+    }
+    const key = (match[1] ?? "").toLowerCase();
+    const raw = match[2] ?? "";
+    const header = parseBlockHeader(raw);
+    if (header) {
+      const read = readBlock(lines, i + 1, header);
+      map.set(key, read.value);
+      i = read.next;
+      continue;
+    }
+    const plain = parsePlain(raw);
+    if (!plain && hasIndentedContinuation(lines, i + 1)) {
+      const read = readBlock(lines, i + 1, { style: "fold", chomp: "clip", indent: 0 });
+      map.set(key, read.value);
+      i = read.next;
+      continue;
+    }
+    map.set(key, plain);
+    i += 1;
+  }
+  return map;
+}
+
+function parseBlockHeader(raw: string): BlockHeader | undefined {
+  let text = raw.trim();
+  const comment = text.search(/\s#/);
+  if (comment !== -1) text = text.slice(0, comment).trim();
+  if (!text || (text[0] !== ">" && text[0] !== "|")) return undefined;
+  let chomp: BlockHeader["chomp"] = "clip";
+  let indent = 0;
+  let sawChomp = false;
+  let sawIndent = false;
+  for (let index = 1; index < text.length; index += 1) {
+    const ch = text[index] ?? "";
+    if ((ch === "+" || ch === "-") && !sawChomp) {
+      chomp = ch === "+" ? "keep" : "strip";
+      sawChomp = true;
+      continue;
+    }
+    if (ch >= "1" && ch <= "9" && !sawIndent) {
+      indent = Number(ch);
+      sawIndent = true;
+      continue;
+    }
+    return undefined;
+  }
+  return { style: text[0] === "|" ? "literal" : "fold", chomp, indent };
+}
+
+function readBlock(lines: readonly string[], start: number, header: BlockHeader): { value: string; next: number } {
+  const kept: string[] = [];
+  let index = start;
+  let contentIndent = header.indent > 0 ? header.indent : -1;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      if (contentIndent === -1) {
+        index += 1;
+        continue;
+      }
+      kept.push("");
+      index += 1;
+      continue;
+    }
+    const indent = leadingIndent(line);
+    if (contentIndent === -1) {
+      if (indent === 0) break;
+      contentIndent = indent;
+    }
+    if (indent < contentIndent) break;
+    kept.push(line.slice(contentIndent));
+    index += 1;
+  }
+  const joined = header.style === "literal" ? kept.join("\n") : foldScalar(kept);
+  return { value: applyChomp(joined, header.chomp), next: index };
+}
+
+function hasIndentedContinuation(lines: readonly string[], start: number): boolean {
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) continue;
+    return leadingIndent(line) > 0;
+  }
+  return false;
+}
+
+function leadingIndent(line: string): number {
+  let count = 0;
+  while (count < line.length && (line[count] === " " || line[count] === "\t")) count += 1;
+  return count;
+}
+
+function foldScalar(lines: readonly string[]): string {
+  const parts: string[] = [];
+  let paragraph: string[] = [];
+  const flush = () => {
+    if (!paragraph.length) return;
+    parts.push(paragraph.join(" "));
+    paragraph = [];
+  };
+  for (const line of lines) {
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    paragraph.push(line.trim());
+  }
+  flush();
+  return parts.join("\n");
+}
+
+function applyChomp(text: string, chomp: BlockHeader["chomp"]): string {
+  if (!text) return "";
+  const withBreak = text.endsWith("\n") ? text : `${text}\n`;
+  if (chomp === "keep") return withBreak;
+  if (chomp === "strip") return withBreak.replace(/\n+$/, "");
+  return withBreak.replace(/\n+$/, "\n");
+}
+
+function parsePlain(raw: string): string {
+  let value = raw.trim().replace(/\s+#.*$/, "").trim();
+  if ((value.startsWith('"') && value.endsWith('"') && value.length >= 2) || (value.startsWith("'") && value.endsWith("'") && value.length >= 2)) {
+    value = value.slice(1, -1);
+  }
+  return value.trim();
+}
+
+function frontFlag(raw: string | undefined): boolean | undefined {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (!value) return undefined;
+  if (value === "true" || value === "yes" || value === "1" || value === "on") return true;
+  if (value === "false" || value === "no" || value === "0" || value === "off") return false;
   return undefined;
 }
