@@ -9,7 +9,7 @@ import { autoEngaged, normalizeMode, normalizeApproval, type ApprovalMode } from
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
 import { formatPluginList, installPlugin, loadPlugin, listPlugins, parsePluginCommand, removePlugin, type PluginCommand, type PluginRecord, type PluginRunResult } from "./plugins.js";
-import { discoverSkills, formatSkillList, resolveSkill, skillsFromPlugin, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
+import { discoverSkills, formatSkillList, resolveSkill, skillMenuSummary, skillSourceLabel, skillsFromPlugin, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
 import {
   DEFAULT_SCRIPT_FIELDS,
   DESIGNED_STATUS_FIELDS,
@@ -68,6 +68,10 @@ export interface CommandHost {
   openModelPicker?(): void;
   /** Present in the TUI. `/effort` with no level opens the picker instead of printing it. */
   openEffortPicker?(): void;
+  /** Present in the TUI. `/skill` with no name opens the picker instead of printing the list. */
+  openSkillPicker?(): void;
+  /** Reload discovered skills after `/plugin install`, `load`, or `remove`. */
+  onPluginsChanged?(): void;
   effort?: EffortLevel;
   setEffort?(level: EffortLevel): void;
   /** UltraCode: max thinking plus subagent dispatch. Independent of the named levels. */
@@ -175,6 +179,96 @@ export function filterCommands(query: string): SlashCommand[] {
   });
 }
 
+export interface SlashEntry {
+  name: string;
+  summary: string;
+  kind: "command" | "skill";
+  source?: string;
+  available: boolean;
+}
+
+export interface CompletionSpec {
+  kind: "slash" | "skill" | "plugin-remove";
+  /** Text before the completed token, including the trailing separator. */
+  lead: string;
+  query: string;
+}
+
+const SKILL_ARG = /^(\/(?:skill|skills)\s+)(\S*)$/i;
+const PLUGIN_REMOVE = /^(\/plugin\s+(?:remove|rm|uninstall)\s+)(\S*)$/i;
+
+/** What Tab should complete for the current prompt, or null when the menu stays closed. */
+export function completionSpec(text: string): CompletionSpec | null {
+  if (!text.startsWith("/") || text.includes("\n")) return null;
+  const skill = SKILL_ARG.exec(text);
+  if (skill) return { kind: "skill", lead: skill[1] ?? "/skill ", query: skill[2] ?? "" };
+  const plugin = PLUGIN_REMOVE.exec(text);
+  if (plugin) return { kind: "plugin-remove", lead: plugin[1] ?? "/plugin remove ", query: plugin[2] ?? "" };
+  if (text.includes(" ")) return null;
+  return { kind: "slash", lead: "/", query: text.slice(1) };
+}
+
+/**
+ * Commands first, then skills.
+ * A skill whose short name collides with a command, or with another skill, is offered only as its full id.
+ * Plugin skills match that id and, when the short name is free, the short name too.
+ */
+export function filterSlashEntries(query: string, skills: readonly Skill[]): SlashEntry[] {
+  const q = query.trim().toLowerCase();
+  const commands = filterCommands(q).map(commandEntry);
+  const taken = commandNameSet();
+  const invocable = skills.filter((skill) => skill.userInvocable !== false);
+  const shortCount = new Map<string, number>();
+  for (const skill of invocable) {
+    const key = skill.name.toLowerCase();
+    shortCount.set(key, (shortCount.get(key) ?? 0) + 1);
+  }
+  const skillEntries: SlashEntry[] = [];
+  for (const skill of invocable) {
+    const entry = skillSlashEntry(skill, q, {
+      commandOwns: taken.has(skill.name.toLowerCase()),
+      duplicated: (shortCount.get(skill.name.toLowerCase()) ?? 0) > 1,
+    });
+    if (entry) skillEntries.push(entry);
+  }
+  return [...commands, ...skillEntries];
+}
+
+/** Prefix-match skill ids and short names. The filled token is always the id. */
+export function filterSkillArgs(query: string, skills: readonly Skill[]): SlashEntry[] {
+  const q = query.trim().toLowerCase();
+  const out: SlashEntry[] = [];
+  for (const skill of skills) {
+    const idKey = skill.id.toLowerCase();
+    const nameKey = skill.name.toLowerCase();
+    if (q && !idKey.startsWith(q) && !nameKey.startsWith(q)) continue;
+    out.push(skillEntry(skill, skill.id));
+  }
+  return out;
+}
+
+export function filterPluginNames(query: string, plugins: readonly { name: string; scope?: string; source?: string }[]): SlashEntry[] {
+  const q = query.trim().toLowerCase();
+  return plugins
+    .filter((plugin) => !q || plugin.name.toLowerCase().startsWith(q))
+    .map((plugin) => ({
+      name: plugin.name,
+      summary: [plugin.scope, plugin.source].filter(Boolean).join(" · "),
+      kind: "command" as const,
+      available: true,
+    }));
+}
+
+export function completionEntries(
+  spec: CompletionSpec,
+  skills: readonly Skill[],
+  plugins: readonly { name: string; scope?: string; source?: string }[],
+): SlashEntry[] {
+  if (spec.kind === "skill") return filterSkillArgs(spec.query, skills);
+  if (spec.kind === "plugin-remove") return filterPluginNames(spec.query, plugins);
+  return filterSlashEntries(spec.query, skills);
+}
+
 export function helpLines(): string[] {
   return helpText().split("\n");
 }
@@ -199,14 +293,21 @@ export function unavailableLine(command: SlashCommand): string {
  * A unique prefix may complete. A highlighted menu row is used only when the
  * text itself is an ambiguous prefix, so `/login` is never rewritten to `/help`.
  */
-export function resolveSubmittedSlash(input: string, highlightIndex: number): string {
+export function resolveSubmittedSlash(
+  input: string,
+  highlightIndex: number,
+  skills: readonly Skill[] = [],
+  plugins: readonly { name: string; scope?: string; source?: string }[] = [],
+): string {
   const trimmed = input.trim();
   const parsed = splitCommand(trimmed);
   if (!parsed) return trimmed;
-  if (parsed.args) return trimmed;
+  if (parsed.args) return resolveSubmittedArg(trimmed, highlightIndex, skills, plugins);
   const exact = findExact(parsed.name);
   if (exact) return `/${exact.name}`;
-  const matches = filterCommands(parsed.name);
+  const matches = filterSlashEntries(parsed.name, skills);
+  const exactEntry = matches.find((item) => item.name.toLowerCase() === parsed.name.toLowerCase());
+  if (exactEntry) return `/${exactEntry.name}`;
   if (matches.length === 1 && matches[0]) return `/${matches[0].name}`;
   if (matches.length > 1) {
     const picked = matches[Math.max(0, Math.min(highlightIndex, matches.length - 1))];
@@ -237,7 +338,7 @@ export async function runSlashCommand(input: string, host: CommandHost): Promise
   }
   if (!command) {
     const skills = discoverSkills({ workspace: host.workspace, home: host.home ?? homedir() });
-    const skill = resolveSkill(skills, parsed.name);
+    const skill = resolveSkill(skills.filter((item) => item.userInvocable !== false), parsed.name);
     if (skill === "ambiguous") {
       host.push(`技能 ${parsed.name} 有多个来源。用 /skill <plugin>:<name>。`, "error");
       return;
@@ -606,6 +707,10 @@ async function applySkill(args: string, host: CommandHost): Promise<void> {
   const skills = discoverSkills({ workspace: host.workspace, home: host.home ?? homedir() });
   const trimmed = args.trim();
   if (!trimmed || trimmed === "list" || trimmed === "列表") {
+    if (!trimmed && host.openSkillPicker) {
+      host.openSkillPicker();
+      return;
+    }
     host.push(formatSkillList(skills));
     return;
   }
@@ -659,15 +764,18 @@ function applyPlugin(args: string, host: CommandHost): void {
     if (parsed.action === "install") {
       const record = installPlugin(parsed.source, { home, workspace, scope: parsed.scope, run: host.pluginRun });
       host.push(pluginReadyLine("安装", record));
+      host.onPluginsChanged?.();
       return;
     }
     if (parsed.action === "load") {
       const record = loadPlugin(parsed.source, { home, workspace, scope: parsed.scope });
       host.push(pluginReadyLine("加载", record));
+      host.onPluginsChanged?.();
       return;
     }
     const removed = removePlugin(parsed.target, { home, workspace });
     host.push(`已移除插件 ${removed}。`);
+    host.onPluginsChanged?.();
   } catch (error) {
     host.push(error instanceof Error ? error.message : String(error), "error");
   }
@@ -772,6 +880,70 @@ export function readMemoryPreview(workspace: string): string {
   if (!text) return `No memory file yet. /init asks Glue to write ${path.join(workspace, "AGENT.md")}.`;
   const lines = text.split("\n").slice(0, 40).join("\n");
   return `${file}\n\n${lines}`;
+}
+
+function commandEntry(command: SlashCommand): SlashEntry {
+  return { name: command.name, summary: command.summary, kind: "command", available: command.available };
+}
+
+function commandNameSet(): Set<string> {
+  const names = new Set<string>();
+  for (const command of CATALOG) {
+    names.add(command.name.toLowerCase());
+    for (const alias of command.aliases ?? []) names.add(alias.toLowerCase());
+  }
+  return names;
+}
+
+function skillEntry(skill: Skill, name: string): SlashEntry {
+  return {
+    name,
+    summary: skillMenuSummary(skill),
+    kind: "skill",
+    source: skillSourceLabel(skill),
+    available: true,
+  };
+}
+
+function skillSlashEntry(
+  skill: Skill,
+  query: string,
+  flags: { commandOwns: boolean; duplicated: boolean },
+): SlashEntry | null {
+  const shortKey = skill.name.toLowerCase();
+  const idKey = skill.id.toLowerCase();
+  const same = shortKey === idKey;
+  const shortMatch = !query || shortKey.startsWith(query);
+  const idMatch = !query || idKey.startsWith(query);
+  if (flags.commandOwns) {
+    // The command owns the short name. The skill stays reachable only by its full id.
+    if (same || !idMatch) return null;
+    return skillEntry(skill, skill.id);
+  }
+  if (flags.duplicated) {
+    if (!shortMatch && !idMatch) return null;
+    return skillEntry(skill, skill.id);
+  }
+  if (shortMatch) return skillEntry(skill, skill.name);
+  if (!same && idMatch) return skillEntry(skill, skill.id);
+  return null;
+}
+
+function resolveSubmittedArg(
+  trimmed: string,
+  highlightIndex: number,
+  skills: readonly Skill[],
+  plugins: readonly { name: string; scope?: string; source?: string }[],
+): string {
+  const spec = completionSpec(trimmed);
+  if (!spec || spec.kind === "slash" || !spec.query.trim()) return trimmed;
+  const matches = completionEntries(spec, skills, plugins);
+  if (!matches.length) return trimmed;
+  const exact = matches.find((item) => item.name.toLowerCase() === spec.query.toLowerCase());
+  if (exact) return `${spec.lead}${exact.name}`;
+  if (matches.length === 1 && matches[0]) return `${spec.lead}${matches[0].name}`;
+  const picked = matches[Math.max(0, Math.min(highlightIndex, matches.length - 1))];
+  return picked ? `${spec.lead}${picked.name}` : trimmed;
 }
 
 function findExact(name: string): SlashCommand | undefined {

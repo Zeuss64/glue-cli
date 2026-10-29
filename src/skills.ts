@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent } from "node:fs";
 import path from "node:path";
 import { listPlugins, readPluginManifest, resolveInsidePlugin, type PluginRecord } from "./plugins.js";
+import { fitWidth } from "./tui/text.js";
 
 export type SkillSource = "personal" | "project" | "plugin";
 
@@ -12,6 +13,12 @@ export interface Skill {
   source: SkillSource;
   plugin?: string;
   path: string;
+  /** Frontmatter `user-invocable`. False hides the skill from the `/` menu. */
+  userInvocable: boolean;
+  /** Frontmatter `disable-model-invocation`. True omits the skill from the system prompt catalog. */
+  disableModelInvocation: boolean;
+  /** Frontmatter `argument-hint`, shown at the end of a menu row. */
+  argumentHint: string;
 }
 
 export interface ActiveSkill {
@@ -22,27 +29,42 @@ export interface ActiveSkill {
 
 const BODY_LIMIT = 24_000;
 
-export function parseSkillMarkdown(raw: string, fallbackName: string): { name: string; description: string; body: string } | undefined {
+export function parseSkillMarkdown(raw: string, fallbackName: string): {
+  name: string;
+  description: string;
+  body: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  argumentHint: string;
+} | undefined {
   const text = raw.replace(/^\uFEFF/, "");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
   let description = "";
   let body = text.trim();
   let name = sanitizeSkillName(fallbackName);
+  let userInvocable = true;
+  let disableModelInvocation = false;
+  let argumentHint = "";
   if (match) {
     const meta = match[1] ?? "";
     body = (match[2] ?? "").trim();
     const named = sanitizeSkillName(frontValue(meta, "name"));
     if (named) name = named;
-    description = frontValue(meta, "description");
+    description = oneLine(frontValue(meta, "description")).slice(0, 400);
+    const invoke = frontFlag(meta, "user-invocable");
+    if (invoke !== undefined) userInvocable = invoke;
+    const model = frontFlag(meta, "disable-model-invocation");
+    if (model !== undefined) disableModelInvocation = model;
+    argumentHint = oneLine(frontValue(meta, "argument-hint")).slice(0, 120);
   } else {
     const line = body.split(/\r?\n/).map((item) => item.trim()).find((item) => item && !item.startsWith("#"));
-    description = (line ?? "").slice(0, 240);
+    description = oneLine(line ?? "").slice(0, 240);
   }
   if (!name) return undefined;
   if (!body && description) body = description;
   if (!body) return undefined;
   if (body.length > BODY_LIMIT) body = `${body.slice(0, BODY_LIMIT)}\n…`;
-  return { name, description: description.slice(0, 400), body };
+  return { name, description, body, userInvocable, disableModelInvocation, argumentHint };
 }
 
 export function discoverSkills(opts: { workspace: string; home: string }): Skill[] {
@@ -79,7 +101,26 @@ export function toActiveSkill(skill: Skill): ActiveSkill {
   return { id: skill.id, body: skill.body, description: skill.description };
 }
 
-export function formatSkillList(skills: readonly Skill[]): string {
+export function skillSourceLabel(skill: Pick<Skill, "source" | "plugin">): string {
+  if (skill.source === "plugin") return `plugin:${skill.plugin || "plugin"}`;
+  return skill.source;
+}
+
+/** Collapse a multiline description to one line. YAML block scalars stay out of scope. */
+export function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function skillMenuSummary(skill: Pick<Skill, "source" | "plugin" | "description" | "argumentHint">): string {
+  return [`(${skillSourceLabel(skill)})`, oneLine(skill.description), oneLine(skill.argumentHint)].filter(Boolean).join(" ");
+}
+
+/** Names and descriptions the model may see. `disable-model-invocation` skills are omitted. */
+export function skillCatalogEntries(skills: readonly Skill[]): Array<{ id: string; description: string }> {
+  return skills.filter((skill) => !skill.disableModelInvocation).map((skill) => ({ id: skill.id, description: skill.description }));
+}
+
+export function formatSkillList(skills: readonly Skill[], columns = 80): string {
   if (!skills.length) {
     return [
       "还没有技能。",
@@ -88,10 +129,12 @@ export function formatSkillList(skills: readonly Skill[]): string {
       "插件：/plugin load <目录> 或 /plugin install <owner/repo>",
     ].join("\n");
   }
+  const width = Math.max(4, columns);
   const lines = ["技能"];
   for (const skill of skills) {
-    const desc = skill.description ? `  ${skill.description.replace(/\s+/g, " ").slice(0, 72)}` : "";
-    lines.push(`  ${skill.id.padEnd(18)} ${skill.source}${desc}`);
+    const desc = oneLine(skill.description);
+    const prefix = `  ${skill.id.padEnd(18)} ${skillSourceLabel(skill)}`;
+    lines.push(fitWidth(desc ? `${prefix}  ${desc}` : prefix, width));
   }
   lines.push("", "/skill <name> [要求] 加载并执行。/skill clear 取消。");
   return lines.join("\n");
@@ -219,18 +262,37 @@ function readSkillFile(file: string, fallbackName: string, source: SkillSource, 
   const parsed = parseSkillMarkdown(raw, fallbackName);
   if (!parsed) return [];
   const id = plugin ? `${plugin}:${parsed.name}` : parsed.name;
-  return [{ id, name: parsed.name, description: parsed.description, body: parsed.body, source, plugin, path: file }];
+  return [{
+    id,
+    name: parsed.name,
+    description: parsed.description,
+    body: parsed.body,
+    source,
+    plugin,
+    path: file,
+    userInvocable: parsed.userInvocable,
+    disableModelInvocation: parsed.disableModelInvocation,
+    argumentHint: parsed.argumentHint,
+  }];
 }
 
 function frontValue(meta: string, key: string): string {
   for (const line of meta.split(/\r?\n/)) {
     const match = new RegExp(`^${key}\\s*:\\s*(.*)$`, "i").exec(line.trim());
     if (!match) continue;
-    let value = (match[1] ?? "").trim();
+    let value = (match[1] ?? "").trim().replace(/\s+#.*$/, "").trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
     return value.trim();
   }
   return "";
+}
+
+function frontFlag(meta: string, key: string): boolean | undefined {
+  const raw = frontValue(meta, key).toLowerCase();
+  if (!raw) return undefined;
+  if (raw === "true" || raw === "yes" || raw === "1" || raw === "on") return true;
+  if (raw === "false" || raw === "no" || raw === "0" || raw === "off") return false;
+  return undefined;
 }

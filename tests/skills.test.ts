@@ -3,12 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { helpText, isImmediateCommand, runSlashCommand, type CommandHost } from "../src/commands.js";
+import { filterSlashEntries, helpText, isImmediateCommand, runSlashCommand, type CommandHost } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 import { emptyRules } from "../src/permissions.js";
 import { installPlugin, loadPlugin, parsePluginSource } from "../src/plugins.js";
 import { buildSystemPrompt } from "../src/prompt.js";
-import { discoverSkills, parseSkillMarkdown, resolveSkill, skillsFromPlugin, type ActiveSkill } from "../src/skills.js";
+import { discoverSkills, formatSkillList, parseSkillMarkdown, resolveSkill, skillCatalogEntries, skillsFromPlugin, type ActiveSkill, type Skill } from "../src/skills.js";
+import { displayWidth } from "../src/tui/text.js";
 import { MATTPOCOCK_SKILLS, writeMattPocockPlugin } from "./mattpocock-fixture.js";
 
 type SkillHost = CommandHost & { lines: string[]; activeSkill: ActiveSkill | null };
@@ -29,6 +30,9 @@ test("SKILL.md frontmatter becomes a skill, and a project skill overrides a pers
     "ignored",
   );
   assert.equal(parsed?.name, "ship");
+  assert.equal(parsed?.userInvocable, true);
+  assert.equal(parsed?.disableModelInvocation, false);
+  assert.equal(parsed?.argumentHint, "");
   assert.match(parsed?.description ?? "", /release note/);
   assert.match(parsed?.body ?? "", /Write a short release note/);
 
@@ -178,6 +182,82 @@ test("a manifest skill path may be one directory or a SKILL.md file", () => {
   loadPlugin(filePlugin, { workspace });
   const ids = discoverSkills({ workspace, home }).map((skill) => skill.id).sort();
   assert.deepEqual(ids, ["fileplug:file", "paths:only"]);
+});
+
+test("user-invocable hides a skill from the slash menu and disable-model-invocation drops it from the prompt catalog", async () => {
+  const parsed = parseSkillMarkdown(
+    '---\nname: Hidden\ndescription: "line one\\nstill one value"\nuser-invocable: false\ndisable-model-invocation: "true"\nargument-hint: "[file]"\n---\n\nHidden body.\n',
+    "ignored",
+  );
+  assert.equal(parsed?.name, "hidden");
+  assert.equal(parsed?.userInvocable, false);
+  assert.equal(parsed?.disableModelInvocation, true);
+  assert.equal(parsed?.argumentHint, "[file]");
+
+  const home = mkdtempSync(path.join(tmpdir(), "glue-home-"));
+  const workspace = mkdtempSync(path.join(tmpdir(), "glue-work-"));
+  writeSkill(path.join(workspace, ".glue", "skills"), "hidden", "---\nname: hidden\ndescription: model only\nuser-invocable: false\n---\n\nHidden body.\n");
+  writeSkill(
+    path.join(workspace, ".glue", "skills"),
+    "quiet",
+    "---\nname: quiet\ndescription: user types it\ndisable-model-invocation: true\nargument-hint: <path>\n---\n\nQuiet body.\n",
+  );
+  writeSkill(path.join(workspace, ".glue", "skills"), "shown", "---\ndescription: shown skill\n---\n\nShown body.\n");
+  const skills = discoverSkills({ workspace, home });
+  const hidden = resolveSkill(skills, "hidden");
+  assert.ok(hidden && hidden !== "ambiguous");
+  assert.equal(hidden.userInvocable, false);
+  const quiet = resolveSkill(skills, "quiet");
+  assert.ok(quiet && quiet !== "ambiguous");
+  assert.equal(quiet.disableModelInvocation, true);
+  assert.equal(quiet.argumentHint, "<path>");
+  const catalog = skillCatalogEntries(skills).map((entry) => entry.id);
+  assert.equal(catalog.includes("quiet"), false);
+  assert.equal(catalog.includes("hidden"), true);
+  assert.equal(catalog.includes("shown"), true);
+  const menu = filterSlashEntries("", skills);
+  assert.equal(menu.some((entry) => entry.kind === "skill" && entry.name === "hidden"), false);
+  const quietRow = menu.find((entry) => entry.name === "quiet");
+  assert.ok(quietRow);
+  assert.match(quietRow.summary, /<path>$/);
+
+  const turns: string[] = [];
+  const session = host(workspace, home, turns);
+  await runSlashCommand("/hidden", session);
+  assert.match(session.lines.at(-1) ?? "", /Unknown command/);
+  await runSlashCommand("/skill hidden go", session);
+  assert.equal(activeSkillId(session), "hidden");
+  assert.equal(turns.at(-1), "go");
+  let opened = 0;
+  session.openSkillPicker = () => {
+    opened += 1;
+  };
+  const before = session.lines.length;
+  await runSlashCommand("/skill", session);
+  assert.equal(opened, 1);
+  assert.equal(session.lines.length, before);
+});
+
+test("formatSkillList collapses a description to one line and truncates by display width", () => {
+  const wide: Skill = {
+    id: "wide",
+    name: "wide",
+    description: `alpha\nbeta ${"查".repeat(40)}END`,
+    body: "body",
+    source: "personal",
+    path: "SKILL.md",
+    userInvocable: true,
+    disableModelInvocation: false,
+    argumentHint: "",
+  };
+  const text = formatSkillList([wide], 48);
+  const line = text.split("\n").find((item) => item.includes("wide")) ?? "";
+  assert.equal(line.includes("\n"), false);
+  assert.match(line, /alpha beta/);
+  assert.match(line, /personal/);
+  assert.match(line, /…/);
+  assert.doesNotMatch(line, /END/);
+  assert.ok(displayWidth(line) <= 48);
 });
 
 function writeNested(root: string, parts: string[], name: string): void {

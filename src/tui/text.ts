@@ -91,6 +91,21 @@ export function displayWidth(text: string): number {
   return width;
 }
 
+/** Cut `text` so it fits `width` columns, ending with an ellipsis when it does not. */
+export function fitWidth(text: string, width: number): string {
+  if (displayWidth(text) <= width) return text;
+  const budget = Math.max(1, width - 1);
+  let out = "";
+  let used = 0;
+  for (const part of graphemes(text)) {
+    const size = displayWidth(part.segment);
+    if (used + size > budget) break;
+    out += part.segment;
+    used += size;
+  }
+  return `${out}…`;
+}
+
 export function visualLines(text: string, columns: number): number {
   const width = Math.max(1, columns);
   if (!text) return 1;

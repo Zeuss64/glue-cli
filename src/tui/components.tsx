@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { compactDiff } from "../diff.js";
 import { displayName } from "../render/format.js";
 import { slashRowLines, slashRowTone } from "./complete.js";
+import { skillPickerLine, skillPickerWindow, type SkillPickerItem } from "./skill-picker.js";
 import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
@@ -327,7 +328,8 @@ export function HelpPanel({ theme }: { theme: Theme }) {
     ["! command", "run a shell command"],
     ["# note", "append to AGENT.md"],
     ["@path", "attach a file"],
-    ["/", "commands"],
+    ["/", "commands and skills"],
+    ["/skill", "skill picker · tab fills /skill <id>"],
     ["/model", "model list · ←→ effort · alt+p"],
     ["/effort", "Faster/Smarter track · tab toggles UltraCode"],
     ["alt+p", "model list and effort row"],
@@ -372,6 +374,40 @@ export function SlashMenu({
           </Box>
         );
       })}
+    </Box>
+  );
+}
+
+export function SkillPicker({
+  theme,
+  items,
+  selected,
+  query,
+  columns = 80,
+}: {
+  theme: Theme;
+  items: SkillPickerItem[];
+  selected: number;
+  query: string;
+  columns?: number;
+}) {
+  const windowed = skillPickerWindow(items, selected, 6);
+  const filter = query ? `filter: ${query}` : "filter: type to search";
+  const width = Math.max(4, columns - 2);
+  return (
+    <Box flexDirection="column" flexShrink={0} borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Text bold {...textInk(theme, theme.text)}>技能</Text>
+      <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${items.length}`}</Text>
+      {items.length === 0 ? <Text {...textInk(theme, theme.muted)}>没有匹配的技能</Text> : null}
+      {windowed.rows.map((item, index) => {
+        const on = index === windowed.selected;
+        return (
+          <Text key={`${item.id}:${index}`} {...textInk(theme, on ? theme.accent : theme.text)} wrap="truncate-end">
+            {skillPickerLine(item, width, on)}
+          </Text>
+        );
+      })}
+      <Text {...textInk(theme, theme.muted)}>↑↓ select · enter load · tab fill · esc close</Text>
     </Box>
   );
 }
