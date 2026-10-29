@@ -95,6 +95,12 @@ export function toolDefinitions(shellEnabled: boolean): ToolDef[] {
       ),
     },
     {
+      name: "skill",
+      description:
+        "Read a skill by name and return its instructions. Read-only. The first line is the skill directory; sibling files such as tests.md live there. Pass a skill id from the system prompt. You cannot type slash commands. Skills with disable-model-invocation are omitted.",
+      parameters: parameters({ name: { type: "string", description: "Skill id or short name, for example pack:review." } }, ["name"]),
+    },
+    {
       name: "ask_user",
       description:
         "Ask the user one multiple-choice question when you cannot proceed without a decision. Do not use it to confirm ordinary edits.",

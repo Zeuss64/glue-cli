@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { applyEdit, EditError } from "../edit.js";
+import { activatedSkillBody, discoverSkills, resolveSkill } from "../skills.js";
 import { ULTRACODE_DESCRIPTION } from "../effort.js";
 import { compactDiff, diffLines, diffStats } from "../diff.js";
 import { globMatch } from "../glob.js";
@@ -34,6 +36,8 @@ export interface ToolContext {
   todos: TodoItem[];
   tasks: Map<string, BackgroundTask>;
   signal?: AbortSignal;
+  /** Home for `~/.glue` skills. Defaults to `os.homedir()`. */
+  skillHome?: string;
   noteFile?: (filePath: string, before: string | null) => void;
   consumeBackground?: () => boolean;
   /**
@@ -68,6 +72,8 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
         return grepSearch(ctx, required(args, "pattern"), str(args, "path"), str(args, "glob"));
       case "todo_write":
         return writeTodos(ctx, args.todos);
+      case "skill":
+        return loadSkill(ctx, str(args, "name") ?? "");
       case "spawn_subagent":
         return spawnSubagent(ctx, required(args, "prompt"), bool(args, "read_only"));
       case "run_shell":
@@ -80,6 +86,17 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     if (error instanceof Error) return fail(error.message);
     return fail(String(error));
   }
+}
+
+function loadSkill(ctx: ToolContext, name: string): ToolOutcome {
+  const query = name.trim();
+  if (!query) return fail('Missing string argument "name".');
+  const skills = discoverSkills({ workspace: ctx.sandbox.primary, home: ctx.skillHome ?? homedir() }).filter((skill) => !skill.disableModelInvocation);
+  const found = resolveSkill(skills, query);
+  if (found === "ambiguous") return fail(`Skill ${query} matches more than one. Pass the full id plugin:name.`);
+  if (!found) return fail(`No skill named ${query}.`);
+  const output = activatedSkillBody(found);
+  return { ok: true, output, summary: `Skill ${found.id}`, detail: output };
 }
 
 async function spawnSubagent(ctx: ToolContext, prompt: string, readOnly: boolean): Promise<ToolOutcome> {

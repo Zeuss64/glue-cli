@@ -1,12 +1,24 @@
+import { homedir } from "node:os";
 import { runAgentTurn, type AgentHooks, type PermissionChoice, type PermissionPrompt } from "./agent/loop.js";
 import { runSpawnedSubagent, toolsForSession } from "./agent/subagent.js";
 import { ensureGlobalConfigForSession, type AppConfig } from "./config.js";
 import { createLlmClient } from "./llm/client.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { discoverSkills, skillCatalogEntries } from "./skills.js";
 import { displayName, formatDiffPlain } from "./render/format.js";
 import { Sandbox } from "./sandbox.js";
 import type { ToolContext } from "./tools/execute.js";
 import type { ChatMessage, TokenUsage } from "./types.js";
+
+function sessionPrompt(config: AppConfig): string {
+  let skillCatalog: ReturnType<typeof skillCatalogEntries> = [];
+  try {
+    skillCatalog = skillCatalogEntries(discoverSkills({ workspace: config.workspace, home: homedir() }));
+  } catch {
+    skillCatalog = [];
+  }
+  return buildSystemPrompt({ ...config, skillCatalog });
+}
 
 const orange = (s: string) => (process.env.NO_COLOR ? s : `\x1b[38;5;173m${s}\x1b[0m`);
 const dim = (s: string) => (process.env.NO_COLOR ? s : `\x1b[2m${s}\x1b[0m`);
@@ -29,12 +41,13 @@ export async function runPrint(opts: {
     readFiles: new Set(),
     todos: [],
     tasks: new Map(),
+    skillHome: homedir(),
   };
   const messages: ChatMessage[] = opts.messages?.length
     ? opts.messages
-    : [{ role: "system", content: buildSystemPrompt(opts.config) }];
+    : [{ role: "system", content: sessionPrompt(opts.config) }];
   if (!messages.some((message) => message.role === "system")) {
-    messages.unshift({ role: "system", content: buildSystemPrompt(opts.config) });
+    messages.unshift({ role: "system", content: sessionPrompt(opts.config) });
   }
   messages.push({ role: "user", content: opts.prompt });
   const client = createLlmClient(opts.config);

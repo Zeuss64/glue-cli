@@ -8,8 +8,8 @@ import { INIT_PROMPT, loadMemory, memoryPath } from "./prompt.js";
 import { autoEngaged, normalizeMode, normalizeApproval, type ApprovalMode } from "./permissions.js";
 import type { PermissionMode, PermissionRules, TokenUsage } from "./types.js";
 import type { AppConfig } from "./config.js";
-import { formatPluginList, installPlugin, loadPlugin, listPlugins, parsePluginCommand, removePlugin, type PluginCommand, type PluginRecord, type PluginRunResult } from "./plugins.js";
-import { discoverSkills, formatSkillList, resolveSkill, skillMenuSummary, skillSourceLabel, skillsFromPlugin, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
+import { formatPluginList, installPlugin, loadPlugin, listPlugins, MarketplaceChoiceNeeded, parsePluginCommand, removePlugin, type PluginCommand, type PluginRecord, type PluginRunResult, type PluginScope } from "./plugins.js";
+import { activatedSkillBody, discoverSkills, formatSkillList, resolveSkill, skillMenuSummary, skillSourceLabel, skillsFromPlugin, toActiveSkill, type ActiveSkill, type Skill } from "./skills.js";
 import {
   DEFAULT_SCRIPT_FIELDS,
   DESIGNED_STATUS_FIELDS,
@@ -70,6 +70,8 @@ export interface CommandHost {
   openEffortPicker?(): void;
   /** Present in the TUI. `/skill` with no name opens the picker instead of printing the list. */
   openSkillPicker?(): void;
+  /** Present in the TUI. A marketplace with several plugins opens this instead of installing all of them. */
+  openPluginPicker?(choice: { source: string; scope: PluginScope; plugins: Array<{ name: string; description: string }> }): void;
   /** Reload discovered skills after `/plugin install`, `load`, or `remove`. */
   onPluginsChanged?(): void;
   effort?: EffortLevel;
@@ -742,7 +744,7 @@ async function activateSkill(skill: Skill, request: string, host: CommandHost): 
     await host.runTurn(request || `Follow the active skill "${skill.id}".`);
     return;
   }
-  const prompt = [`Follow this skill (${skill.id}).`, skill.body, request].filter(Boolean).join("\n\n");
+  const prompt = [`Follow this skill (${skill.id}).`, activatedSkillBody(skill), request].filter(Boolean).join("\n\n");
   await host.runTurn(prompt);
 }
 
@@ -777,6 +779,14 @@ function applyPlugin(args: string, host: CommandHost): void {
     host.push(`已移除插件 ${removed}。`);
     host.onPluginsChanged?.();
   } catch (error) {
+    if (error instanceof MarketplaceChoiceNeeded) {
+      if (host.openPluginPicker) {
+        host.openPluginPicker({ source: error.source, scope: error.scope, plugins: error.plugins });
+        return;
+      }
+      host.push(error.message);
+      return;
+    }
     host.push(error instanceof Error ? error.message : String(error), "error");
   }
 }
