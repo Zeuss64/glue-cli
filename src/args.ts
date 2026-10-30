@@ -99,6 +99,7 @@ Usage
   glue doctor                  check config, key, and workspace
 
 In the interactive session, /resume opens a picker and /resume <id> resumes that session.
+/rename <name> labels the current session; the next /resume shows that name.
 
 Options
   -p, --print                  non-interactive print mode

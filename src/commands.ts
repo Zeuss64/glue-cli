@@ -126,7 +126,7 @@ const CATALOG: SlashCommand[] = [
   { name: "review", aliases: ["code-review"], summary: "Read-only review of the current diff", available: true },
   { name: "resume", aliases: ["continue"], summary: "Open the session picker, or resume an id", available: true },
   { name: "export", summary: "Write the transcript to a markdown file", available: true },
-  { name: "rename", summary: "Name the current session", available: true },
+  { name: "rename", summary: "Name this session. /resume shows it instead of the first message", available: true },
   { name: "context", summary: "Rough token use against the context window", available: true },
   { name: "add-dir", summary: "Add another directory to the workspace", available: true },
   { name: "tasks", summary: "List background shell tasks", available: true },
@@ -442,13 +442,21 @@ async function dispatch(name: string, args: string, host: CommandHost): Promise<
     case "export":
       host.exportSession(args || undefined);
       return;
-    case "rename":
-      if (!args) host.push("Usage: /rename <name>");
-      else {
-        host.setSessionName(args.slice(0, 80));
-        host.push(`Session renamed to ${args.slice(0, 80)}.`);
+    case "rename": {
+      const name = args.replace(/\s+/g, " ").trim().slice(0, 80);
+      if (!name) {
+        const current = host.sessionName.trim();
+        host.push(
+          current
+            ? `Name: ${current}\nUsage: /rename <name>`
+            : "This session uses its first message as the /resume label.\nUsage: /rename <name>",
+        );
+        return;
       }
+      host.setSessionName(name);
+      host.push(`Session renamed to ${name}. /resume shows this name.`);
       return;
+    }
     case "context": {
       const used = host.usage.input + host.usage.output;
       const pct = Math.min(100, Math.round((used / Math.max(1, host.contextWindow)) * 100));

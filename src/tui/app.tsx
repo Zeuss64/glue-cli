@@ -45,7 +45,7 @@ import {
   appendPromptHistory,
   createSession,
   findSessionFile,
-  listSessions,
+  listResumeSessions,
   loadSession,
   readPromptHistory,
   SessionLog,
@@ -677,7 +677,7 @@ function App({ boot }: { boot: Boot }) {
       system(answer || "Nothing to recap yet.");
     },
     resume: async (id) => {
-      const decision = decideResume(id, listSessions(workspaceRef.current), logRef.current?.meta.id);
+      const decision = decideResume(id, listResumeSessions(workspaceRef.current), logRef.current?.meta.id);
       if (decision.action === "message") {
         system(decision.text, decision.level);
         return;
@@ -834,8 +834,11 @@ function App({ boot }: { boot: Boot }) {
     rememberReads(snap);
     setScrollBoth(0);
     logRef.current.updateMeta({});
-    const label = snap.meta.name ? `${snap.meta.id} · ${snap.meta.name}` : snap.meta.id;
-    pushItem({ id: createId("s"), type: "system", text: `Resumed ${label}` }, false);
+    const named = snap.meta.name.trim();
+    const label = named
+      ? `Resumed ${snap.meta.id} · ${named}`
+      : `Resumed ${snap.meta.id}. /rename <name> labels it in /resume.`;
+    pushItem({ id: createId("s"), type: "system", text: label }, false);
   }
 
   function rememberReads(snap: SessionSnapshot): void {
@@ -1810,6 +1813,8 @@ function App({ boot }: { boot: Boot }) {
           query={resumeView.query}
           matchCount={resumeView.matchCount}
           preview={resumeView.preview}
+          hiddenAbove={resumeView.hiddenAbove}
+          hiddenBelow={resumeView.hiddenBelow}
         />
       ) : null}
       {phase.type === "permission" && phase.step === "choose" ? (

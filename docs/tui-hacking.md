@@ -23,7 +23,8 @@ After any code change, run `npm test` and `npm run typecheck` from the repositor
 | `src/tui/theme.ts` | `dark`, `light`, and `ansi` color sets. |
 | `src/tui/model-picker.ts` | Model list order, `N/M` hint, and up/down/left/right reducer. |
 | `src/effort.ts` | Effort levels and the Anthropic `output_config` helper. |
-| `src/commands.ts` | Slash commands, including `/model`, `/effort`, and `/resume`. |
+| `src/resume.ts` | `/resume` labels (custom name, else first user message), picker filter, and keyboard reducer. |
+| `src/commands.ts` | Slash commands, including `/model`, `/effort`, `/resume`, and `/rename`. |
 | `tests/input.test.ts` | Decoded keys and editor edits. |
 | `tests/viewport.test.ts` | Frame size and long-output clipping. |
 | `tests/more.test.ts` | Shift+Tab, `?` help, and submit. |
@@ -140,7 +141,7 @@ Extend `tests/input.test.ts` when you add a sequence. Assert both the decoded `K
 - Backspace at the end of a line deletes. Only the Delete key deletes forward, and it is a no-op at the end of the line.
 - One Backspace removes one CJK character, one emoji, or one supplementary-plane character (`\u{20000}`).
 - Ctrl+A remains "start of line".
-- `/resume` still opens the picker for other recent sessions and skips the current session and empty unnamed ones.
+- `/resume` still opens the picker for other recent sessions and skips the current session and empty unnamed ones. A row label is the custom `meta.name` from `/rename` when that name is non-empty; otherwise it is the session's first user message on one line. `/rename <name>` is how you set that name after you are in the session. The picker scans the newest 200 sessions, not only the 30 full logs from `listSessions`.
 - `/model` with no id still opens a list when only one model is configured. That list is `models` from config, or only the current id when `models` is empty. `/model <id>` still sets that id directly.
 - Bare `/effort` opens the left/right picker when `openEffortPicker` is set. `/effort <level>` still sets the level. `/effort status` still prints it. `/effort ultracode` toggles subagent dispatch and does not remove `low` through `auto`.
 - Transcript scroll is visual lines from the bottom. The wheel and Page Up / Page Down move that window. Scroll `0` stays on the latest line.

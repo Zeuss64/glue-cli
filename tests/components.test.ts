@@ -204,7 +204,31 @@ test("resume picker lists a session and the keys that select it", () => {
   assert.match(frame, /filter: parse/);
   assert.match(frame, /enter resume/);
   assert.match(frame, /esc cancel/);
+  assert.match(frame, /\/rename <name> labels the open session/);
   view.unmount();
+
+  const many = render(
+    createElement(ResumePicker, {
+      theme,
+      selected: 0,
+      query: "",
+      matchCount: 12,
+      hiddenAbove: 2,
+      hiddenBelow: 2,
+      preview: ["> fix the parser"],
+      rows: [
+        { id: "named", title: "parser work", meta: "2h ago · named · fix the parser" },
+        { id: "plain", title: "add a regression test", meta: "1h ago · plain" },
+      ],
+    }),
+  );
+  const listed = many.lastFrame() ?? "";
+  assert.match(listed, /parser work/);
+  assert.match(listed, /add a regression test/);
+  assert.match(listed, /2 earlier/);
+  assert.match(listed, /2 later/);
+  assert.match(listed, /12 sessions/);
+  many.unmount();
 
   const models = render(
     createElement(ModelPicker, {

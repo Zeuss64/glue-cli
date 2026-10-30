@@ -1,5 +1,9 @@
 import { displayName } from "./render/format.js";
 import type { SessionSnapshot } from "./session.js";
+import { fitWidth } from "./tui/text.js";
+
+/** Columns for a picker title. Leaves room for the border, padding, and caret on an 80-column terminal. */
+export const RESUME_LABEL_COLUMNS = 72;
 
 /** One row in the in-session resume picker. */
 export interface ResumeListItem {
@@ -45,20 +49,56 @@ export interface ResumePickerView {
   query: string;
   matchCount: number;
   preview: string[];
+  hiddenAbove: number;
+  hiddenBelow: number;
+}
+
+/**
+ * Name stored by `/rename`. Empty when `/resume` should label the row from the first user message.
+ * Whitespace does not count as a custom name.
+ */
+export function customSessionName(name: string): string {
+  return name.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The session's first user message, as one line of the words the user typed.
+ * Transcript text wins over the model payload so attached file dumps stay out of the label.
+ */
+export function firstUserMessageText(session: Pick<SessionSnapshot, "messages" | "items">): string {
+  for (const item of session.items) {
+    if (item.type !== "user") continue;
+    const text = plainUserText(item.text);
+    if (text) return text;
+  }
+  for (const message of session.messages) {
+    if (message.role !== "user") continue;
+    const text = plainUserText(message.content);
+    if (text) return text;
+  }
+  return "";
+}
+
+/** Custom name when set, otherwise the first user message, otherwise `(no messages)`. */
+export function sessionResumeTitle(session: Pick<SessionSnapshot, "meta" | "messages" | "items">): string {
+  const name = customSessionName(session.meta.name);
+  if (name) return oneLine(name, RESUME_LABEL_COLUMNS);
+  const first = firstUserMessageText(session);
+  if (first) return oneLine(first, RESUME_LABEL_COLUMNS);
+  return "(no messages)";
 }
 
 export function sessionListItem(session: SessionSnapshot): ResumeListItem {
-  const message = session.messages.find((item) => item.role === "user");
-  const preview = message && message.role === "user" ? oneLine(message.content, 80) : "";
-  const name = oneLine(session.meta.name, 80);
+  const name = customSessionName(session.meta.name);
+  const preview = firstUserMessageText(session);
   return {
     id: session.meta.id,
     name,
     preview,
-    title: name || preview || "(no messages)",
+    title: sessionResumeTitle(session),
     updatedAt: session.meta.updatedAt || session.meta.createdAt,
     resumable: Boolean(name || preview),
-    tail: tailLines(session, preview),
+    tail: tailLines(session, oneLine(preview, 80)),
   };
 }
 
@@ -141,6 +181,8 @@ export function resumePickerView(state: ResumePickerState, now = new Date()): Re
     query: state.query,
     matchCount: matches.length,
     preview: current?.tail ?? [],
+    hiddenAbove: windowed.start,
+    hiddenBelow: Math.max(0, matches.length - windowed.start - windowed.rows.length),
   };
 }
 
@@ -160,7 +202,7 @@ export function formatResumeAge(iso: string, now = new Date()): string {
 
 function resumeRowMeta(item: ResumeListItem, now: Date): string {
   const age = formatResumeAge(item.updatedAt, now);
-  if (item.name && item.preview) return `${age} · ${item.id} · ${item.preview}`;
+  if (item.name && item.preview) return `${age} · ${item.id} · ${oneLine(item.preview, 48)}`;
   return `${age} · ${item.id}`;
 }
 
@@ -183,11 +225,15 @@ function resolveResumeId(
   return { kind: "none" };
 }
 
-function windowResumeItems(items: ResumeListItem[], selected: number, size: number): { rows: ResumeListItem[]; selected: number } {
-  if (!items.length) return { rows: [], selected: 0 };
+function windowResumeItems(
+  items: ResumeListItem[],
+  selected: number,
+  size: number,
+): { rows: ResumeListItem[]; selected: number; start: number } {
+  if (!items.length) return { rows: [], selected: 0, start: 0 };
   const index = clamp(selected, 0, items.length - 1);
   const start = Math.max(0, Math.min(index - 1, Math.max(0, items.length - size)));
-  return { rows: items.slice(start, start + size), selected: index - start };
+  return { rows: items.slice(start, start + size), selected: index - start, start };
 }
 
 function tailLines(session: SessionSnapshot, preview: string): string[] {
@@ -205,10 +251,13 @@ function tailLines(session: SessionSnapshot, preview: string): string[] {
   return tail;
 }
 
+function plainUserText(raw: string): string {
+  const cut = raw.split(/<attached\b/)[0] ?? raw;
+  return cut.replace(/\s+/g, " ").trim();
+}
+
 function oneLine(text: string, max: number): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  if (line.length <= max) return line;
-  return `${line.slice(0, max - 1)}…`;
+  return fitWidth(text.replace(/\s+/g, " ").trim(), max);
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -457,6 +457,8 @@ export function ResumePicker({
   query,
   matchCount,
   preview,
+  hiddenAbove = 0,
+  hiddenBelow = 0,
 }: {
   theme: Theme;
   rows: Array<{ id: string; title: string; meta: string }>;
@@ -464,6 +466,8 @@ export function ResumePicker({
   query: string;
   matchCount: number;
   preview: string[];
+  hiddenAbove?: number;
+  hiddenBelow?: number;
 }) {
   const filter = query ? `filter: ${query}` : "filter: type to search";
   const count = `${matchCount} ${matchCount === 1 ? "session" : "sessions"}`;
@@ -471,22 +475,24 @@ export function ResumePicker({
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
       <Text bold {...textInk(theme, theme.text)}>Resume session</Text>
       <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${count}`}</Text>
+      {hiddenAbove > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenAbove} earlier`}</Text> : null}
       {rows.length === 0 ? <Text {...textInk(theme, theme.muted)}>No matching sessions</Text> : null}
       {rows.map((row, index) => (
         <Box key={row.id} flexDirection="column">
-          <Text {...textInk(theme, index === selected ? theme.accent : theme.text)}>
+          <Text wrap="truncate" {...textInk(theme, index === selected ? theme.accent : theme.text)}>
             {index === selected ? "❯ " : "  "}
             {row.title}
           </Text>
-          <Text {...textInk(theme, theme.muted)}>{`    ${row.meta}`}</Text>
+          <Text wrap="truncate" {...textInk(theme, theme.muted)}>{`    ${row.meta}`}</Text>
         </Box>
       ))}
+      {hiddenBelow > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenBelow} later`}</Text> : null}
       {rows.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text {...textInk(theme, theme.muted)}>preview</Text>
           {preview.length ? (
             preview.map((line, index) => (
-              <Text key={index} {...textInk(theme, theme.text)}>{line}</Text>
+              <Text key={index} wrap="truncate" {...textInk(theme, theme.text)}>{line}</Text>
             ))
           ) : (
             <Text {...textInk(theme, theme.muted)}>Empty session</Text>
@@ -494,6 +500,7 @@ export function ResumePicker({
         </Box>
       ) : null}
       <Text {...textInk(theme, theme.muted)}>↑↓ select · enter resume · esc cancel</Text>
+      <Text {...textInk(theme, theme.muted)}>{"/rename <name> labels the open session"}</Text>
     </Box>
   );
 }
