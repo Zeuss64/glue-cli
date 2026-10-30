@@ -195,12 +195,18 @@ test("resume picker lists a session and the keys that select it", () => {
       query: "parse",
       matchCount: 1,
       preview: ["> fix the parser"],
-      rows: [{ id: "20261026-120000-ab12", title: "fix the parser", meta: "2h ago · 20261026-120000-ab12" }],
+      rows: [{ id: "20261026-120000-ab12", title: "fix the parser", age: "2h ago", detail: "20261026-120000-ab12" }],
     }),
   );
   const frame = view.lastFrame() ?? "";
-  assert.match(frame, /Resume session/);
-  assert.match(frame, /fix the parser/);
+  const text = stripAnsi(frame);
+  assert.match(text, /Resume session/);
+  assert.match(text, /fix the parser/);
+  assert.match(text, /2h ago/);
+  assert.match(text, /20261026-120000-ab12/);
+  const titleLine = text.split("\n").find((line) => line.includes("❯") && line.includes("fix the parser")) ?? "";
+  assert.match(titleLine, /fix the parser/);
+  assert.doesNotMatch(titleLine, /20261026|2h ago/);
   assert.match(frame, /filter: parse/);
   assert.match(frame, /enter resume/);
   assert.match(frame, /esc cancel/);
@@ -217,8 +223,8 @@ test("resume picker lists a session and the keys that select it", () => {
       hiddenBelow: 2,
       preview: ["> fix the parser"],
       rows: [
-        { id: "named", title: "parser work", meta: "2h ago · named · fix the parser" },
-        { id: "plain", title: "add a regression test", meta: "1h ago · plain" },
+        { id: "named", title: "parser work", age: "2h ago", detail: "named · fix the parser" },
+        { id: "plain", title: "add a regression test", age: "1h ago", detail: "plain" },
       ],
     }),
   );
