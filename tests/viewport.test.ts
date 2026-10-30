@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TranscriptItem } from "../src/types.js";
+import { STARTUP_HEADER_ROWS } from "../src/tui/pet.js";
 import { visualLines } from "../src/tui/text.js";
 import {
   fitTranscript,
@@ -52,7 +53,8 @@ test("the frame stays one row under the terminal so Ink does not erase scrollbac
   assert.equal(frameRows(2), 1);
   assert.equal(frameRows(undefined), 23);
   assert.equal(frameRows(0), 23);
-  assert.equal(transcriptBudget(23, 4), 13);
+  assert.equal(STARTUP_HEADER_ROWS, 4);
+  assert.equal(transcriptBudget(23, 4), 23 - STARTUP_HEADER_ROWS - 5 - 4);
   assert.equal(layoutColumns(100), 99);
   assert.equal(layoutColumns(2), 1);
   assert.equal(layoutColumns(undefined), 79);

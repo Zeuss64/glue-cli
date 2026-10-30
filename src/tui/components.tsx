@@ -13,18 +13,31 @@ import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESC
 import { effortTrackLines } from "./effort-picker.js";
 import { footerModeInk, statusBarPieces } from "./footer.js";
 import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
+import { horseRows, PET_COLOR } from "./pet.js";
 import { textInk, type Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
 const VERBS = ["Thinking", "Pondering", "Tracing", "Sifting", "Drafting", "Checking", "Mulling", "Shaping"];
 
 export function Header({ theme, model, cwd, branch }: { theme: Theme; model: string; cwd: string; branch?: string }) {
+  const petInk = theme.bg ? { color: PET_COLOR, backgroundColor: theme.bg } : { color: PET_COLOR };
+  const where = `${cwd}${branch ? `  ·  ${branch}` : ""}`;
   return (
-    <Text>
-      <Text {...textInk(theme, theme.accent)}>✻ </Text>
-      <Text bold {...textInk(theme, theme.text)}>Glue</Text>
-      <Text {...textInk(theme, theme.muted)}>{` ${VERSION}  ·  ${model}  ·  ${cwd}${branch ? `  ·  ${branch}` : ""}`}</Text>
-    </Text>
+    <Box flexDirection="row" flexShrink={0}>
+      <Box flexDirection="column" marginRight={1} flexShrink={0}>
+        {horseRows().map((row, index) => (
+          <Text key={index} wrap="truncate" {...petInk}>{row}</Text>
+        ))}
+      </Box>
+      <Box flexDirection="column" flexShrink={0}>
+        <Text>
+          <Text bold {...textInk(theme, theme.text)}>Glue</Text>
+          <Text {...textInk(theme, theme.muted)}>{` ${VERSION}`}</Text>
+        </Text>
+        <Text {...textInk(theme, theme.muted)}>{model}</Text>
+        <Text {...textInk(theme, theme.muted)}>{where}</Text>
+      </Box>
+    </Box>
   );
 }
 
