@@ -8,13 +8,14 @@ import type { ApprovalMode } from "../permissions.js";
 import type { DiffLine, PermissionMode, TodoItem, TranscriptItem } from "../types.js";
 import { VERSION } from "../version.js";
 import type { PermissionPrompt } from "../agent/loop.js";
+import type { ResumePickerRow } from "../resume.js";
 import { promptCaretMode, promptSegments, showPromptPlaceholder } from "./caret.js";
 import { effortBlurb, effortColor, effortGlyphColor, effortTitle, ULTRACODE_DESCRIPTION } from "../effort.js";
 import { effortTrackLines } from "./effort-picker.js";
 import { footerModeInk, statusBarPieces } from "./footer.js";
 import { modelDescription, modelListLines, type ModelListEntry } from "./model-picker.js";
 import { horseRows, PET_COLOR } from "./pet.js";
-import { textInk, type Theme } from "./theme.js";
+import { resumeSelectedInk, textInk, type Theme } from "./theme.js";
 
 const FRAMES = ["✻", "✽", "✶", "✢", "✺"];
 const VERBS = ["Thinking", "Pondering", "Tracing", "Sifting", "Drafting", "Checking", "Mulling", "Shaping"];
@@ -461,7 +462,7 @@ export function ResumePicker({
   hiddenBelow = 0,
 }: {
   theme: Theme;
-  rows: Array<{ id: string; title: string; meta: string }>;
+  rows: ResumePickerRow[];
   selected: number;
   query: string;
   matchCount: number;
@@ -477,15 +478,24 @@ export function ResumePicker({
       <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${count}`}</Text>
       {hiddenAbove > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenAbove} earlier`}</Text> : null}
       {rows.length === 0 ? <Text {...textInk(theme, theme.muted)}>No matching sessions</Text> : null}
-      {rows.map((row, index) => (
-        <Box key={row.id} flexDirection="column">
-          <Text wrap="truncate" {...textInk(theme, index === selected ? theme.accent : theme.text)}>
-            {index === selected ? "❯ " : "  "}
-            {row.title}
-          </Text>
-          <Text wrap="truncate" {...textInk(theme, theme.muted)}>{`    ${row.meta}`}</Text>
-        </Box>
-      ))}
+      {rows.map((row, index) => {
+        const on = index === selected;
+        // Hex accent as a lone foreground collapses on classic cmd. The title
+        // carries the selection. The age is bold; the session id stays plain.
+        const titleInk = on ? resumeSelectedInk(theme) : textInk(theme, theme.text);
+        return (
+          <Box key={row.id} flexDirection="column">
+            <Text wrap="truncate" {...titleInk}>
+              {on ? "❯ " : "  "}
+              {row.title}
+            </Text>
+            <Text wrap="truncate">
+              <Text bold {...textInk(theme, theme.muted)}>{`    ${row.age}`}</Text>
+              {row.detail ? <Text {...textInk(theme, theme.muted)}>{` · ${row.detail}`}</Text> : null}
+            </Text>
+          </Box>
+        );
+      })}
       {hiddenBelow > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenBelow} later`}</Text> : null}
       {rows.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>

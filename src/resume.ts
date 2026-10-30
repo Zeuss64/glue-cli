@@ -43,8 +43,18 @@ export interface ResumeKey {
 
 export type ResumePickerEffect = { type: "close" } | { type: "select"; id: string };
 
+export interface ResumePickerRow {
+  id: string;
+  /** `/rename` name when set, otherwise the first user message. Not the session id. */
+  title: string;
+  /** Relative time. The secondary line leads with this. */
+  age: string;
+  /** Session id, plus the first-message preview when a custom name is the title. */
+  detail: string;
+}
+
 export interface ResumePickerView {
-  rows: Array<{ id: string; title: string; meta: string }>;
+  rows: ResumePickerRow[];
   selected: number;
   query: string;
   matchCount: number;
@@ -176,7 +186,7 @@ export function resumePickerView(state: ResumePickerState, now = new Date()): Re
   const windowed = windowResumeItems(matches, selected, 8);
   const current = matches[selected];
   return {
-    rows: windowed.rows.map((item) => ({ id: item.id, title: item.title, meta: resumeRowMeta(item, now) })),
+    rows: windowed.rows.map((item) => ({ id: item.id, ...resumeRowLabel(item, now) })),
     selected: windowed.rows.length ? windowed.selected : 0,
     query: state.query,
     matchCount: matches.length,
@@ -200,10 +210,16 @@ export function formatResumeAge(iso: string, now = new Date()): string {
   return iso.slice(0, 10);
 }
 
-function resumeRowMeta(item: ResumeListItem, now: Date): string {
+/**
+ * Title and secondary line for one picker row.
+ * Title is the custom name, or the first user message. Age is the relative
+ * time and leads the secondary line. The session id is only in `detail`.
+ */
+export function resumeRowLabel(item: ResumeListItem, now = new Date()): Omit<ResumePickerRow, "id"> {
   const age = formatResumeAge(item.updatedAt, now);
-  if (item.name && item.preview) return `${age} · ${item.id} · ${oneLine(item.preview, 48)}`;
-  return `${age} · ${item.id}`;
+  const preview = item.name && item.preview ? oneLine(item.preview, 48) : "";
+  const detail = preview ? `${item.id} · ${preview}` : item.id;
+  return { title: item.title, age, detail };
 }
 
 function resolveResumeId(

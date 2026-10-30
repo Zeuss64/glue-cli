@@ -12,6 +12,7 @@ import {
   reduceResumePicker,
   RESUME_LABEL_COLUMNS,
   resumePickerView,
+  resumeRowLabel,
   sessionListItem,
   sessionResumeTitle,
   type ResumeKey,
@@ -141,7 +142,9 @@ test("picker view windows the list and shows age plus preview", () => {
   assert.equal(view.hiddenAbove, 0);
   assert.equal(view.hiddenBelow, 2);
   assert.equal(view.rows[0]?.title, "note 0");
-  assert.match(view.rows[0]?.meta ?? "", /2h ago · s0/);
+  assert.notEqual(view.rows[0]?.title, view.rows[0]?.id);
+  assert.equal(view.rows[0]?.age, "2h ago");
+  assert.equal(view.rows[0]?.detail, "s0");
   assert.deepEqual(view.preview, ["> note 0"]);
   const scrolled = resumePickerView(reduceResumePicker(openResumePicker(items), key({ down: true, input: "" })).state, new Date("2026-10-26T12:00:00Z"));
   const further = resumePickerView(
@@ -153,6 +156,29 @@ test("picker view windows the list and shows age plus preview", () => {
   assert.equal(further.hiddenBelow, 0);
   assert.equal(formatResumeAge("2026-10-24T12:00:00Z", new Date("2026-10-26T12:00:00Z")), "2d ago");
   assert.equal(formatResumeAge("nope"), "nope");
+});
+
+test("the title is the rename or the first message, and the age leads the session id", () => {
+  const now = new Date("2026-10-26T12:00:00Z");
+  const named = sessionListItem(snap("20261026-120000-ab12", "parser work", "fix the parser and write the tests"));
+  const plain = sessionListItem(snap("20261026-130000-cd34", "   ", "add a regression test"));
+  const namedLabel = resumeRowLabel(named, now);
+  assert.equal(namedLabel.title, "parser work");
+  assert.equal(namedLabel.age, "2h ago");
+  assert.equal(namedLabel.detail, "20261026-120000-ab12 · fix the parser and write the tests");
+  assert.notEqual(namedLabel.title, named.id);
+  assert.doesNotMatch(namedLabel.title, /20261026|2h ago/);
+  const plainLabel = resumeRowLabel(plain, now);
+  assert.equal(plainLabel.title, "add a regression test");
+  assert.equal(plainLabel.age, "2h ago");
+  assert.equal(plainLabel.detail, "20261026-130000-cd34");
+  assert.notEqual(plainLabel.title, plain.id);
+  assert.doesNotMatch(plainLabel.detail, /add a regression/);
+  const view = resumePickerView(openResumePicker([named, plain]), now);
+  assert.equal(view.rows[0]?.title, namedLabel.title);
+  assert.equal(view.rows[0]?.age, "2h ago");
+  assert.equal(view.rows[1]?.title, plainLabel.title);
+  assert.ok((view.rows[1]?.detail ?? "").startsWith(plain.id));
 });
 
 test("the default resume label is the first user message on one line", () => {
@@ -205,9 +231,12 @@ test("a custom name wins over the first user message", () => {
     new Date("2026-10-26T12:00:00Z"),
   );
   assert.equal(view.rows[0]?.title, "ship the picker");
-  assert.match(view.rows[0]?.meta ?? "", /fix the parser/);
+  assert.equal(view.rows[0]?.age, "2h ago");
+  assert.match(view.rows[0]?.detail ?? "", /^id · fix the parser/);
+  assert.notEqual(view.rows[0]?.title, view.rows[0]?.id);
   assert.equal(view.rows[1]?.title, "hello there");
-  assert.doesNotMatch(view.rows[1]?.meta ?? "", /hello there/);
+  assert.equal(view.rows[1]?.detail, "id");
+  assert.doesNotMatch(view.rows[1]?.detail ?? "", /hello there/);
 });
 
 test("sessions on disk keep id and name lookup", () => {
@@ -274,7 +303,11 @@ test("rename persists on the session name, and the next resume list prefers it",
   if (renamed.action !== "picker") return;
   const view = resumePickerView(openResumePicker(renamed.items), new Date("2026-10-26T12:00:00Z"));
   assert.equal(view.rows[0]?.title, "parser work");
-  assert.match(view.rows[0]?.meta ?? "", /fix the parser/);
+  assert.ok(view.rows[0]?.age);
+  assert.notEqual(view.rows[0]?.age, view.rows[0]?.id);
+  assert.match(view.rows[0]?.detail ?? "", /fix the parser/);
+  assert.ok((view.rows[0]?.detail ?? "").startsWith(log.meta.id));
+  assert.notEqual(view.rows[0]?.title, log.meta.id);
   assert.deepEqual(decideResume("parser work", after), { action: "load", id: log.meta.id });
 });
 
