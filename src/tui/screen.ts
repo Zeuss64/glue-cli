@@ -3,9 +3,9 @@
  *
  * Ink's log-update erases only the logical line count from the previous paint.
  * After a Windows resize those lines have wrapped or the window has grown, so
- * the old input border stays on screen (a second orange box, or chrome left
+ * the old input rules stay on screen (a second line, or chrome left
  * mid-window). `log.done()` on exit does not erase that frame either, so the
- * box sits on top of cmd's prompt.
+ * rules sit on top of cmd's prompt.
  *
  * Erase the visible screen with CSI 2J and home the cursor. Do not send CSI 3J
  * (erase scrollback) and do not enter the alternate screen: that pair freezes
@@ -61,7 +61,7 @@ export function imeParkSequence(row: number, column: number): string {
 /**
  * Put the cursor back where the previous paint left it (end of the frame) and
  * keep it hidden. log-update erases upward from the current cursor; leaving
- * the cursor on the input caret makes that erase miss the orange border.
+ * the cursor on the input caret makes that erase miss the input rules.
  */
 export const IME_PARK_RESTORE = "\x1b8\x1b[?25l";
 
@@ -88,7 +88,7 @@ export const SYNC_UPDATE_CLOSE = "\x1b[?2026l";
  * between those steps is the gap where pinyin paints at the bottom.
  *
  * log-update erases relative to the cursor, so the restore stays in front of
- * the frame. Skipping it leaves the previous orange input border on screen.
+ * the frame. Skipping it leaves the previous input rules on screen.
  */
 export function attachImeCursorSync(
   stdout: { write: (...args: any[]) => any },

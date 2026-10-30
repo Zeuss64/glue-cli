@@ -23,14 +23,14 @@ test("resize reflow and exit restore erase the visible frame without wiping scro
   assert.equal(placeCursorSequence(27, 5), "\x1b[27;5H");
 });
 
-test("the IME anchor sits on the caret inside the input border", () => {
+test("the IME anchor sits on the caret in the open input row", () => {
   const empty = imeAnchor({ frameRows: 29, frameCols: 100, text: "", cursor: 0 });
-  assert.deepEqual(empty, { row: 27, column: 5 });
+  assert.deepEqual(empty, { row: 27, column: 3 });
   const typed = imeAnchor({ frameRows: 29, frameCols: 100, text: "ab", cursor: 2 });
   assert.equal(typed.row, 27);
-  assert.equal(typed.column, 7);
+  assert.equal(typed.column, 5);
   const han = imeAnchor({ frameRows: 29, frameCols: 80, text: "你", cursor: 1 });
-  assert.equal(han.column, 7);
+  assert.equal(han.column, 5);
 });
 
 test("tab accepts the highlighted slash row instead of the nearest prefix", () => {

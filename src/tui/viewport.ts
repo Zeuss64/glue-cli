@@ -47,8 +47,8 @@ export function frameRows(reported: number | undefined): number {
 }
 
 /**
- * One column short of the terminal. A border that fills every column wraps
- * on the last cell and leaves an extra orange row under the input; log-update
+ * One column short of the terminal. A rule that fills every column wraps
+ * on the last cell and leaves an extra row under the input; log-update
  * does not count that wrapped row, so the next paint cannot erase it.
  */
 export function layoutColumns(reported: number | undefined): number {
@@ -122,10 +122,10 @@ function usableDim(value: number | undefined): number | undefined {
 }
 
 /**
- * Prompt margin plus round border (4) and the status bar (1).
+ * Input chrome (top rule, prompt row, bottom rule) and the status bar.
  * The startup header is `STARTUP_HEADER_ROWS` (horse beside the version block).
  */
-const PROMPT_AND_STATUS_ROWS = 5;
+const PROMPT_AND_STATUS_ROWS = 4;
 
 export function transcriptBudget(frame: number, extraLines: number): number {
   return Math.max(1, frame - STARTUP_HEADER_ROWS - PROMPT_AND_STATUS_ROWS - Math.max(0, extraLines));

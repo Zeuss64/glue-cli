@@ -191,7 +191,7 @@ export function PromptBox({
   anchor?: number | null;
   placeholder?: string;
   hint?: string;
-  /** IME composition, drawn inside the border when the host can see it. */
+  /** IME composition, drawn on the input row when the host can see it. */
   preedit?: string;
 }) {
   const composing = promptCaretMode(text, preedit ?? "") === "compose";
@@ -200,12 +200,19 @@ export function PromptBox({
   // frame and parks the hardware cursor, which flickers IME preedit.
   const parts = composing ? [] : promptSegments(text, cursor, anchor, 0);
   return (
-    <Box flexDirection="column" marginTop={1} flexShrink={0}>
+    <Box flexDirection="column" flexShrink={0}>
       {hint ? <Text {...textInk(theme, theme.muted)}>{hint}</Text> : null}
-      <Box borderStyle="round" borderColor={theme.accent} paddingLeft={1} paddingRight={1} flexShrink={0}>
+      <Box
+        flexShrink={0}
+        width="100%"
+        borderStyle="single"
+        borderLeft={false}
+        borderRight={false}
+        borderColor={theme.border}
+      >
         <Box flexShrink={0}>
           <Text>
-            <Text {...textInk(theme, theme.accent)}>{"> "}</Text>
+            <Text {...textInk(theme, theme.text)}>{"> "}</Text>
             {composing ? (
               <Text underline {...textInk(theme, theme.text)}>{preedit ?? ""}</Text>
             ) : (

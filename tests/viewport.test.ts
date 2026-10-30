@@ -54,7 +54,7 @@ test("the frame stays one row under the terminal so Ink does not erase scrollbac
   assert.equal(frameRows(undefined), 23);
   assert.equal(frameRows(0), 23);
   assert.equal(STARTUP_HEADER_ROWS, 4);
-  assert.equal(transcriptBudget(23, 4), 23 - STARTUP_HEADER_ROWS - 5 - 4);
+  assert.equal(transcriptBudget(23, 4), 23 - STARTUP_HEADER_ROWS - 4 - 4);
   assert.equal(layoutColumns(100), 99);
   assert.equal(layoutColumns(2), 1);
   assert.equal(layoutColumns(undefined), 79);
