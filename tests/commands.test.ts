@@ -192,6 +192,20 @@ test("/effort ultracode toggles subagents and leaves the level alone", async () 
   assert.equal(session.effort, "xhigh");
 });
 
+test("/rename stores a custom session name for /resume", async () => {
+  const session = host();
+  await runSlashCommand("/rename", session);
+  assert.match(session.lines.at(-1) ?? "", /first message/);
+  assert.match(session.lines.at(-1) ?? "", /Usage: \/rename <name>/);
+  await runSlashCommand("/rename   parser   work  ", session);
+  assert.equal(session.sessionName, "parser work");
+  assert.match(session.lines.at(-1) ?? "", /Session renamed to parser work/);
+  assert.match(session.lines.at(-1) ?? "", /\/resume shows this name/);
+  await runSlashCommand("/rename", session);
+  assert.match(session.lines.at(-1) ?? "", /Name: parser work/);
+  assert.match(helpText(), /\/rename\s+Name this session/);
+});
+
 test("/resume with no id opens the picker path, and /resume <id> passes the id", async () => {
   const session = host();
   assert.match(helpText(), /\/resume\s+Open the session picker, or resume an id/);
