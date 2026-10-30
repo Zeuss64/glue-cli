@@ -89,6 +89,8 @@ test("rendered assistant text and the input caret contrast on light and stay lig
   );
   const inputFrame = lightInput.lastFrame() ?? "";
   assert.match(stripAnsi(inputFrame), /ab/);
+  assert.match(inputFrame.split("\n")[0] ?? "", /38;2;120;113;108/);
+  assert.doesNotMatch(inputFrame.split("\n")[0] ?? "", /38;2;194;65;12/);
   assertReadable(inputFrame, "a", { light: true, maxForeground: 0.15 });
   const caret = styleAt(inputFrame, "b");
   assert.equal(caret.inverse, true);
@@ -103,6 +105,8 @@ test("rendered assistant text and the input caret contrast on light and stay lig
     createElement(Box, { width: 72, flexDirection: "column" }, createElement(PromptBox, { theme: THEMES.dark, text: "ab", cursor: 1 })),
   );
   const darkInputFrame = darkInput.lastFrame() ?? "";
+  assert.match(darkInputFrame.split("\n")[0] ?? "", /38;2;107;98;92/);
+  assert.doesNotMatch(darkInputFrame.split("\n")[0] ?? "", /38;2;217;119;87/);
   assertReadable(darkInputFrame, "a", { light: false, minForeground: 0.7 });
   const darkCaret = styleAt(darkInputFrame, "b");
   assert.equal(darkCaret.inverse, true);

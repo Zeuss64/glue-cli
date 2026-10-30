@@ -15,6 +15,11 @@ import { layoutColumns } from "../src/tui/viewport.js";
 
 const theme = THEMES.ansi;
 
+function isPromptRule(line: string): boolean {
+  const trimmed = line.trimEnd();
+  return trimmed.length > 0 && [...trimmed].every((ch) => ch === "─");
+}
+
 test("status bar and permission dialog use the Glue labels", async () => {
   const status = render(createElement(StatusBar, { theme, mode: "acceptEdits" }));
   const statusFrame = stripAnsi(status.lastFrame() ?? "");
@@ -53,7 +58,9 @@ test("status bar and permission dialog use the Glue labels", async () => {
   const borderLines = stripAnsi(prompt.lastFrame() ?? "")
     .split("\n")
     .filter((line) => displayWidth(line) > 0);
-  assert.ok(borderLines.some((line) => line.includes("╰")));
+  assert.equal(borderLines.filter((line) => isPromptRule(line)).length, 2);
+  assert.ok(borderLines.some((line) => line.includes(">")));
+  assert.doesNotMatch(borderLines.join("\n"), /[╭╮╯╰│]/);
   for (const line of borderLines) {
     assert.ok(displayWidth(line) <= width);
     assert.ok(displayWidth(line) < columns);
@@ -125,6 +132,38 @@ test("status bar and permission dialog use the Glue labels", async () => {
   assert.match(frame, /Do you want to proceed/);
   assert.match(frame, /tell Glue what to do differently/);
   dialog.unmount();
+});
+
+test("prompt chrome is a full-width rule, a > caret row, and a closing rule", () => {
+  const width = 48;
+  const view = render(
+    createElement(
+      Box,
+      { width, flexDirection: "column" },
+      createElement(PromptBox, {
+        theme,
+        text: "",
+        cursor: 0,
+        placeholder: "Ask Glue to change this project",
+        hint: "shell mode",
+      }),
+    ),
+  );
+  const lines = stripAnsi(view.lastFrame() ?? "")
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
+  assert.equal(lines.length, 4);
+  assert.match(lines[0] ?? "", /^shell mode/);
+  assert.ok(isPromptRule(lines[1] ?? ""));
+  assert.equal(displayWidth((lines[1] ?? "").trimEnd()), width);
+  const caretLine = lines[2] ?? "";
+  assert.match(caretLine, /^> /);
+  assert.match(caretLine, /Ask Glue to change this project\s*$/);
+  assert.ok(caretLine.indexOf("Ask") - caretLine.indexOf(">") > 4);
+  assert.ok(isPromptRule(lines[3] ?? ""));
+  assert.equal(displayWidth((lines[3] ?? "").trimEnd()), width);
+  assert.doesNotMatch(lines.join("\n"), /[╭╮╯╰│┌┐┘└]/);
+  view.unmount();
 });
 
 test("tool rows use the circle and corner glyphs", () => {

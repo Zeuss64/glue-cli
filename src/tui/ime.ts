@@ -6,7 +6,7 @@ import { displayWidth } from "./text.js";
  *
  * The IME anchors to the console cursor, not to Ink's inverse block. After
  * each paint Ink leaves the cursor at the end of the frame (bottom-left),
- * which is why pinyin showed up outside the border. Each stdout write restores
+ * which is why pinyin showed up under the footer. Each stdout write restores
  * that saved position, draws the frame, then CUPs onto this cell and hides the
  * hardware cursor, as one sequence. Windows Terminal (and other VT hosts)
  * attach preedit/candidates to the cursor position even while the glyph is
@@ -53,7 +53,8 @@ export function imeAnchor(opts: {
 }): { row: number; column: number } {
   const rows = Math.max(1, opts.frameRows);
   const cols = Math.max(1, opts.frameCols);
-  const inner = Math.max(1, cols - 4);
+  // The input row is the full frame width: `>` at column 1, no side border.
+  const inner = cols;
   const at = Math.max(0, Math.min(opts.text.length, opts.cursor));
   const content = `> ${opts.text.slice(0, at)}`;
   const wrapped = wrapInput(content, inner);
@@ -61,10 +62,10 @@ export function imeAnchor(opts: {
   const lineWidth = displayWidth(wrapped[lineIndex] ?? "");
   const linesBelowCaret = wrapped.length - 1 - lineIndex;
   const statusRows = Math.max(1, Math.floor(opts.statusRows ?? 1));
-  // Status area, then the input's bottom border, then the caret line.
+  // Status area, then the bottom rule, then the caret line.
   const row = clamp(rows - statusRows - 1 - linesBelowCaret, 1, rows);
-  // Left border + padding + the width already on this visual line + the caret cell.
-  const column = clamp(1 + 1 + lineWidth + 1, 1, cols);
+  // 1-indexed cell after the glyphs already on this visual line.
+  const column = clamp(lineWidth + 1, 1, cols);
   return { row, column };
 }
 
