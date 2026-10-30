@@ -1,4 +1,5 @@
 import type { TranscriptItem } from "../types.js";
+import { STARTUP_HEADER_ROWS } from "./pet.js";
 import { sliceVisual, tailText, visualLines } from "./text.js";
 
 /**
@@ -120,8 +121,14 @@ function usableDim(value: number | undefined): number | undefined {
   return typeof value === "number" && value > 1 ? value : undefined;
 }
 
+/**
+ * Prompt margin plus round border (4) and the status bar (1).
+ * The startup header is `STARTUP_HEADER_ROWS` (horse beside the version block).
+ */
+const PROMPT_AND_STATUS_ROWS = 5;
+
 export function transcriptBudget(frame: number, extraLines: number): number {
-  return Math.max(1, frame - 6 - Math.max(0, extraLines));
+  return Math.max(1, frame - STARTUP_HEADER_ROWS - PROMPT_AND_STATUS_ROWS - Math.max(0, extraLines));
 }
 
 /** Lines moved by one mouse-wheel notch. Page Up and Page Down move a screen. */
