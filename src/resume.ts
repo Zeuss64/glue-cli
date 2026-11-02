@@ -1,5 +1,5 @@
 import { displayName } from "./render/format.js";
-import type { SessionSnapshot } from "./session.js";
+import { readGitBranch, type SessionSnapshot } from "./session.js";
 import { fitWidth } from "./tui/text.js";
 
 /** Columns for a picker title. Leaves room for the border, padding, and caret on an 80-column terminal. */
@@ -12,6 +12,10 @@ export interface ResumeListItem {
   preview: string;
   title: string;
   updatedAt: string;
+  /** User and assistant messages. Tool results are not counted. */
+  messages: number;
+  /** Git branch, or empty when the session has none. */
+  branch: string;
   resumable: boolean;
   tail: string[];
 }
@@ -47,10 +51,14 @@ export interface ResumePickerRow {
   id: string;
   /** `/rename` name when set, otherwise the first user message. Not the session id. */
   title: string;
-  /** Relative time. The secondary line leads with this. */
+  /** Relative time. Also the start of `meta`. */
   age: string;
-  /** Session id, plus the first-message preview when a custom name is the title. */
+  /** Compact secondary line: relative time · message count · branch when known. */
+  meta: string;
+  /** Session id for the preview. Not the row's only label. */
   detail: string;
+  messages: number;
+  branch: string;
 }
 
 export interface ResumePickerView {
@@ -98,6 +106,21 @@ export function sessionResumeTitle(session: Pick<SessionSnapshot, "meta" | "mess
   return "(no messages)";
 }
 
+/** User and assistant turns. A resume scan's `messageCount` wins over the clipped log. */
+export function sessionMessageCount(session: Pick<SessionSnapshot, "messages"> & { messageCount?: number }): number {
+  if (typeof session.messageCount === "number" && Number.isFinite(session.messageCount)) {
+    return Math.max(0, Math.floor(session.messageCount));
+  }
+  return session.messages.reduce((count, message) => (message.role === "user" || message.role === "assistant" ? count + 1 : count), 0);
+}
+
+/** Stored branch, otherwise the branch checked out in the session directory. */
+export function sessionResumeBranch(session: Pick<SessionSnapshot, "meta">): string {
+  const stored = session.meta.branch?.replace(/\s+/g, " ").trim();
+  if (stored) return stored;
+  return readGitBranch(session.meta.cwd)?.replace(/\s+/g, " ").trim() ?? "";
+}
+
 export function sessionListItem(session: SessionSnapshot): ResumeListItem {
   const name = customSessionName(session.meta.name);
   const preview = firstUserMessageText(session);
@@ -107,6 +130,8 @@ export function sessionListItem(session: SessionSnapshot): ResumeListItem {
     preview,
     title: sessionResumeTitle(session),
     updatedAt: session.meta.updatedAt || session.meta.createdAt,
+    messages: sessionMessageCount(session),
+    branch: sessionResumeBranch(session),
     resumable: Boolean(name || preview),
     tail: tailLines(session, oneLine(preview, 80)),
   };
@@ -140,7 +165,7 @@ export function filterResumeItems(items: ResumeListItem[], query: string): Resum
   const q = query.trim().toLowerCase();
   if (!q) return items;
   return items.filter((item) =>
-    [item.id, item.name, item.preview, item.title].some((field) => field.toLowerCase().includes(q)),
+    [item.id, item.name, item.preview, item.title, item.branch].some((field) => field.toLowerCase().includes(q)),
   );
 }
 
@@ -210,16 +235,42 @@ export function formatResumeAge(iso: string, now = new Date()): string {
   return iso.slice(0, 10);
 }
 
+/** `1 message` or `N messages`. */
+export function resumeMessageLabel(count: number): string {
+  const n = Math.max(0, Math.floor(count));
+  return n === 1 ? "1 message" : `${n} messages`;
+}
+
+/** `2h ago · 4 messages · main`. The branch is omitted when it is empty. */
+export function resumeMetaLine(age: string, messages: number, branch: string): string {
+  const parts = [age, resumeMessageLabel(messages)];
+  const name = branch.replace(/\s+/g, " ").trim();
+  if (name) parts.push(name);
+  return fitWidth(parts.join(" · "), RESUME_LABEL_COLUMNS);
+}
+
 /**
  * Title and secondary line for one picker row.
- * Title is the custom name, or the first user message. Age is the relative
- * time and leads the secondary line. The session id is only in `detail`.
+ * Title is the custom name, or the first user message. The secondary line is
+ * the relative time, the message count, and the git branch when one is known.
+ * The session id stays in `detail` for the preview.
  */
 export function resumeRowLabel(item: ResumeListItem, now = new Date()): Omit<ResumePickerRow, "id"> {
   const age = formatResumeAge(item.updatedAt, now);
-  const preview = item.name && item.preview ? oneLine(item.preview, 48) : "";
-  const detail = preview ? `${item.id} · ${preview}` : item.id;
-  return { title: item.title, age, detail };
+  const branch = item.branch.replace(/\s+/g, " ").trim();
+  return {
+    title: item.title,
+    age,
+    meta: resumeMetaLine(age, item.messages, branch),
+    detail: item.id,
+    messages: item.messages,
+    branch,
+  };
+}
+
+/** System line after Enter on a picker row. The human title, not the raw session id. */
+export function resumeLoadedLabel(session: Pick<SessionSnapshot, "meta" | "messages" | "items">): string {
+  return `Resumed ${sessionResumeTitle(session)}. /rename <name> labels it in /resume.`;
 }
 
 function resolveResumeId(

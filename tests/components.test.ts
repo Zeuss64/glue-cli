@@ -195,18 +195,20 @@ test("resume picker lists a session and the keys that select it", () => {
       query: "parse",
       matchCount: 1,
       preview: ["> fix the parser"],
-      rows: [{ id: "20261026-120000-ab12", title: "fix the parser", age: "2h ago", detail: "20261026-120000-ab12" }],
+      rows: [{ id: "20261026-120000-ab12", title: "fix the parser", age: "2h ago", meta: "2h ago · 2 messages · main", detail: "20261026-120000-ab12", messages: 2, branch: "main" }],
     }),
   );
   const frame = view.lastFrame() ?? "";
   const text = stripAnsi(frame);
   assert.match(text, /Resume session/);
   assert.match(text, /fix the parser/);
-  assert.match(text, /2h ago/);
-  assert.match(text, /20261026-120000-ab12/);
+  assert.match(text, /2h ago · 2 messages · main/);
+  assert.match(text, /preview · 20261026-120000-ab12/);
   const titleLine = text.split("\n").find((line) => line.includes("❯") && line.includes("fix the parser")) ?? "";
+  const metaLine = text.split("\n").find((line) => line.includes("2h ago")) ?? "";
   assert.match(titleLine, /fix the parser/);
-  assert.doesNotMatch(titleLine, /20261026|2h ago/);
+  assert.doesNotMatch(titleLine, /20261026|2h ago|messages/);
+  assert.doesNotMatch(metaLine, /20261026|fix the parser/);
   assert.match(frame, /filter: parse/);
   assert.match(frame, /enter resume/);
   assert.match(frame, /esc cancel/);
@@ -223,8 +225,8 @@ test("resume picker lists a session and the keys that select it", () => {
       hiddenBelow: 2,
       preview: ["> fix the parser"],
       rows: [
-        { id: "named", title: "parser work", age: "2h ago", detail: "named · fix the parser" },
-        { id: "plain", title: "add a regression test", age: "1h ago", detail: "plain" },
+        { id: "named", title: "parser work", age: "2h ago", meta: "2h ago · 4 messages · main", detail: "named", messages: 4, branch: "main" },
+        { id: "plain", title: "add a regression test", age: "1h ago", meta: "1h ago · 1 message", detail: "plain", messages: 1, branch: "" },
       ],
     }),
   );

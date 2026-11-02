@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,9 +11,13 @@ import {
   openResumePicker,
   reduceResumePicker,
   RESUME_LABEL_COLUMNS,
+  resumeLoadedLabel,
+  resumeMessageLabel,
+  resumeMetaLine,
   resumePickerView,
   resumeRowLabel,
   sessionListItem,
+  sessionMessageCount,
   sessionResumeTitle,
   type ResumeKey,
   type ResumeListItem,
@@ -100,8 +104,8 @@ test("an ambiguous prefix opens the picker instead of guessing", () => {
 
 test("picker keys filter, move, and select a session", () => {
   const items: ResumeListItem[] = [
-    { id: "new", name: "", preview: "add a test", title: "add a test", updatedAt: "2026-10-26T11:00:00Z", resumable: true, tail: ["> add a test"] },
-    { id: "old", name: "parser", preview: "fix the parser", title: "parser", updatedAt: "2026-10-26T09:00:00Z", resumable: true, tail: ["> fix the parser"] },
+    { id: "new", name: "", preview: "add a test", title: "add a test", updatedAt: "2026-10-26T11:00:00Z", messages: 2, branch: "", resumable: true, tail: ["> add a test"] },
+    { id: "old", name: "parser", preview: "fix the parser", title: "parser", updatedAt: "2026-10-26T09:00:00Z", messages: 4, branch: "main", resumable: true, tail: ["> fix the parser"] },
   ];
   let state = openResumePicker(items);
   let step = reduceResumePicker(state, key({ down: true }));
@@ -133,6 +137,8 @@ test("picker view windows the list and shows age plus preview", () => {
     preview: `note ${index}`,
     title: `note ${index}`,
     updatedAt: "2026-10-26T10:00:00Z",
+    messages: 1,
+    branch: "",
     resumable: true,
     tail: [`> note ${index}`],
   }));
@@ -144,7 +150,9 @@ test("picker view windows the list and shows age plus preview", () => {
   assert.equal(view.rows[0]?.title, "note 0");
   assert.notEqual(view.rows[0]?.title, view.rows[0]?.id);
   assert.equal(view.rows[0]?.age, "2h ago");
+  assert.equal(view.rows[0]?.meta, "2h ago · 1 message");
   assert.equal(view.rows[0]?.detail, "s0");
+  assert.doesNotMatch(view.rows[0]?.meta ?? "", /s0/);
   assert.deepEqual(view.preview, ["> note 0"]);
   const scrolled = resumePickerView(reduceResumePicker(openResumePicker(items), key({ down: true, input: "" })).state, new Date("2026-10-26T12:00:00Z"));
   const further = resumePickerView(
@@ -158,27 +166,33 @@ test("picker view windows the list and shows age plus preview", () => {
   assert.equal(formatResumeAge("nope"), "nope");
 });
 
-test("the title is the rename or the first message, and the age leads the session id", () => {
+test("the title is the rename or the first message, and the meta line is time, count, and branch", () => {
   const now = new Date("2026-10-26T12:00:00Z");
   const named = sessionListItem(snap("20261026-120000-ab12", "parser work", "fix the parser and write the tests"));
+  named.branch = "feature/resume";
   const plain = sessionListItem(snap("20261026-130000-cd34", "   ", "add a regression test"));
   const namedLabel = resumeRowLabel(named, now);
   assert.equal(namedLabel.title, "parser work");
   assert.equal(namedLabel.age, "2h ago");
-  assert.equal(namedLabel.detail, "20261026-120000-ab12 · fix the parser and write the tests");
+  assert.equal(namedLabel.messages, 1);
+  assert.equal(namedLabel.meta, "2h ago · 1 message · feature/resume");
+  assert.equal(namedLabel.detail, "20261026-120000-ab12");
   assert.notEqual(namedLabel.title, named.id);
   assert.doesNotMatch(namedLabel.title, /20261026|2h ago/);
+  assert.doesNotMatch(namedLabel.meta, /20261026/);
   const plainLabel = resumeRowLabel(plain, now);
   assert.equal(plainLabel.title, "add a regression test");
   assert.equal(plainLabel.age, "2h ago");
+  assert.equal(plainLabel.meta, "2h ago · 1 message");
   assert.equal(plainLabel.detail, "20261026-130000-cd34");
   assert.notEqual(plainLabel.title, plain.id);
-  assert.doesNotMatch(plainLabel.detail, /add a regression/);
+  assert.doesNotMatch(plainLabel.meta, /20261026|add a regression/);
   const view = resumePickerView(openResumePicker([named, plain]), now);
   assert.equal(view.rows[0]?.title, namedLabel.title);
   assert.equal(view.rows[0]?.age, "2h ago");
+  assert.equal(view.rows[0]?.meta, namedLabel.meta);
   assert.equal(view.rows[1]?.title, plainLabel.title);
-  assert.ok((view.rows[1]?.detail ?? "").startsWith(plain.id));
+  assert.equal(view.rows[1]?.detail, plain.id);
 });
 
 test("the default resume label is the first user message on one line", () => {
@@ -232,11 +246,13 @@ test("a custom name wins over the first user message", () => {
   );
   assert.equal(view.rows[0]?.title, "ship the picker");
   assert.equal(view.rows[0]?.age, "2h ago");
-  assert.match(view.rows[0]?.detail ?? "", /^id · fix the parser/);
+  assert.equal(view.rows[0]?.meta, "2h ago · 1 message");
+  assert.equal(view.rows[0]?.detail, "id");
+  assert.doesNotMatch(view.rows[0]?.meta ?? "", /fix the parser|id/);
   assert.notEqual(view.rows[0]?.title, view.rows[0]?.id);
   assert.equal(view.rows[1]?.title, "hello there");
   assert.equal(view.rows[1]?.detail, "id");
-  assert.doesNotMatch(view.rows[1]?.detail ?? "", /hello there/);
+  assert.doesNotMatch(view.rows[1]?.meta ?? "", /hello there/);
 });
 
 test("sessions on disk keep id and name lookup", () => {
@@ -305,8 +321,9 @@ test("rename persists on the session name, and the next resume list prefers it",
   assert.equal(view.rows[0]?.title, "parser work");
   assert.ok(view.rows[0]?.age);
   assert.notEqual(view.rows[0]?.age, view.rows[0]?.id);
-  assert.match(view.rows[0]?.detail ?? "", /fix the parser/);
-  assert.ok((view.rows[0]?.detail ?? "").startsWith(log.meta.id));
+  assert.match(view.rows[0]?.meta ?? "", /messages/);
+  assert.equal(view.rows[0]?.detail, log.meta.id);
+  assert.doesNotMatch(view.rows[0]?.meta ?? "", new RegExp(log.meta.id));
   assert.notEqual(view.rows[0]?.title, log.meta.id);
   assert.deepEqual(decideResume("parser work", after), { action: "load", id: log.meta.id });
 });
@@ -342,4 +359,61 @@ test("the resume list still includes sessions past the first 30 files", () => {
   assert.ok(titles.includes("ancient label"));
   assert.equal(decision.items.find((item) => item.id === oldestId)?.title, "ancient label");
   assert.equal(findSessionFile(cwd, "ancient label"), oldestFile);
+});
+
+test("message count skips tool results, and a long branch is truncated on display width", () => {
+  const session = snap("id", "picker", "fix the parser");
+  session.messages.push(
+    { role: "assistant", content: "done" },
+    { role: "tool", tool_call_id: "t", content: "output" },
+    { role: "user", content: "again" },
+  );
+  assert.equal(sessionMessageCount(session), 3);
+  assert.equal(resumeMessageLabel(1), "1 message");
+  assert.equal(resumeMessageLabel(3), "3 messages");
+  const item = sessionListItem(session);
+  item.branch = `功能/${"分支".repeat(40)}`;
+  const label = resumeRowLabel(item, new Date("2026-10-26T12:00:00Z"));
+  assert.equal(label.messages, 3);
+  assert.match(label.meta, /^2h ago · 3 messages · 功能\//);
+  assert.ok(displayWidth(label.meta) <= RESUME_LABEL_COLUMNS);
+  assert.equal(label.meta.endsWith("…"), true);
+  assert.doesNotMatch(label.meta, /\n/);
+  const wideTitle = sessionListItem(snap("wide", "", "你".repeat(80)));
+  assert.ok(displayWidth(wideTitle.title) <= RESUME_LABEL_COLUMNS);
+  assert.equal(resumeMetaLine("2h ago", 2, ""), "2h ago · 2 messages");
+});
+
+test("resume search matches the git branch, and Enter uses the human title", () => {
+  const onMain = sessionListItem(snap("aaaa", "", "fix the parser"));
+  onMain.branch = "main";
+  const onFeature = sessionListItem(snap("bbbb", "ship it", "other work"));
+  onFeature.branch = "feature/resume";
+  assert.deepEqual(
+    filterResumeItems([onMain, onFeature], "feature/resume").map((item) => item.id),
+    ["bbbb"],
+  );
+  assert.equal(resumeLoadedLabel(snap("20261026-120000-ab12", "parser work", "fix the parser")), "Resumed parser work. /rename <name> labels it in /resume.");
+  const unlabeled = resumeLoadedLabel(snap("20261026-120000-ab12", "  ", "fix the parser"));
+  assert.equal(unlabeled, "Resumed fix the parser. /rename <name> labels it in /resume.");
+  assert.doesNotMatch(unlabeled, /20261026/);
+});
+
+test("a session stores the git branch, including a worktree gitdir pointer", () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "glue-resume-branch-"));
+  const gitdir = path.join(cwd, "real.git");
+  mkdirSync(gitdir);
+  writeFileSync(path.join(gitdir, "HEAD"), "ref: refs/heads/feature/picker\n");
+  writeFileSync(path.join(cwd, ".git"), `gitdir: ${gitdir}\n`);
+  const log = createSession(cwd, { cwd, model: "m", profile: "default", permissionMode: "default" });
+  log.message({ role: "user", content: "fix the parser" });
+  log.message({ role: "assistant", content: "done" });
+  assert.equal(log.meta.branch, "feature/picker");
+  const listed = listResumeSessions(cwd);
+  const item = sessionListItem(listed[0] as SessionSnapshot);
+  assert.equal(item.branch, "feature/picker");
+  assert.equal(item.messages, 2);
+  const label = resumeRowLabel(item, new Date("2026-10-26T12:00:00Z"));
+  assert.equal(label.meta.endsWith("· 2 messages · feature/picker"), true);
+  assert.equal(label.detail, log.meta.id);
 });

@@ -38,7 +38,7 @@ import {
   STATUSLINE_DEBOUNCE_MS,
   type StatusLineConfig,
 } from "../statusline.js";
-import { decideResume, openResumePicker, reduceResumePicker, resumePickerView } from "../resume.js";
+import { decideResume, openResumePicker, reduceResumePicker, resumeLoadedLabel, resumePickerView } from "../resume.js";
 import { snapsToRestore } from "../rewind.js";
 import { Sandbox } from "../sandbox.js";
 import {
@@ -47,6 +47,7 @@ import {
   findSessionFile,
   listResumeSessions,
   loadSession,
+  readGitBranch,
   readPromptHistory,
   SessionLog,
   type SessionSnapshot,
@@ -834,11 +835,7 @@ function App({ boot }: { boot: Boot }) {
     rememberReads(snap);
     setScrollBoth(0);
     logRef.current.updateMeta({});
-    const named = snap.meta.name.trim();
-    const label = named
-      ? `Resumed ${snap.meta.id} · ${named}`
-      : `Resumed ${snap.meta.id}. /rename <name> labels it in /resume.`;
-    pushItem({ id: createId("s"), type: "system", text: label }, false);
+    pushItem({ id: createId("s"), type: "system", text: resumeLoadedLabel(snap) }, false);
   }
 
   function rememberReads(snap: SessionSnapshot): void {
@@ -1927,13 +1924,7 @@ function shorten(target: string): string {
 }
 
 function gitBranch(cwd: string): string | undefined {
-  try {
-    const head = readFileSync(path.join(cwd, ".git", "HEAD"), "utf8").trim();
-    const match = /^ref: refs\/heads\/(.+)$/.exec(head);
-    return match?.[1] ?? (head ? head.slice(0, 7) : undefined);
-  } catch {
-    return undefined;
-  }
+  return readGitBranch(cwd);
 }
 
 function suggest(cwd: string): string {

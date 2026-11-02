@@ -101,73 +101,39 @@ export function textInk(theme: Theme, color: string): { color: string; backgroun
   return { color: paint };
 }
 
-/** 16-color names Ink can pass to chalk without emitting `38;2`. */
-const ANSI_BACKGROUND = new Set([
-  "black",
-  "red",
-  "green",
-  "yellow",
-  "blue",
-  "magenta",
-  "cyan",
-  "white",
-  "gray",
-  "grey",
-  "blackBright",
-  "redBright",
-  "greenBright",
-  "yellowBright",
-  "blueBright",
-  "magentaBright",
-  "cyanBright",
-  "whiteBright",
-]);
-
 /**
- * Palette backgrounds where black text clears 4.5:1 on the legacy cmd colors.
- * Dark backgrounds use bright white (SGR 97). Plain `white` is SGR 37, which
- * is gray `#c0c0c0` there and fails on green and cyan.
+ * Dark 16-color bars. Bright white (SGR 97, `#ffffff`) clears 4.5:1 on each
+ * of these legacy cmd backgrounds, and it also clears 4.5:1 on black if the
+ * host paints no background at all.
  */
-const BLACK_ON_ANSI = new Set([
-  "yellow",
-  "white",
-  "gray",
-  "grey",
-  "blackBright",
-  "redBright",
-  "greenBright",
-  "yellowBright",
-  "magentaBright",
-  "cyanBright",
-  "whiteBright",
-]);
+const WHITE_ON_ANSI = new Set(["red", "green", "blue", "magenta", "cyan"]);
 
-const ANSI_SELECTION = { color: "black", backgroundColor: "yellow" } as const;
+const SAFE_SELECTION = { color: "whiteBright", backgroundColor: "blue" } as const;
 
 /**
  * Ink props for the selected `/resume` title.
  *
- * Dark and light accents are hex (`#D97757`, `#C2410C`). The row used to set
- * that hex as `color` and leave `backgroundColor` unset. Ink forwards it to
- * `chalk.hex`. At 16 colors, chalk turns `#D97757` into SGR 31. Classic cmd
- * draws SGR 31 as `#800000`, about 1.9:1 on a black window, so the title is
- * nearly invisible. The line under it is the named color `gray`, which stays
- * readable, and the list looks like `2h ago · <session id>`.
+ * The title used to be the hex accent with no background. At 16 colors that
+ * hex becomes SGR 31, and classic cmd draws SGR 31 as `#800000` on a black
+ * window. A later pass used black on yellow (SGR 30 / 43). That pair is fine
+ * only while the yellow background is actually painted. Windows Terminal and
+ * conhost have both dropped background SGR; SGR 30 is then black on the black
+ * window and the title disappears, while the gray meta line (SGR 90) stays.
+ * Truecolor is not a fallback: conhost quantizes `38;2` / `48;2` onto the
+ * 16-color palette. Inverse (SGR 7) is avoided; conhost has swapped it into
+ * black on black.
  *
- * Windows 10+ is reported as truecolor from the OS build, including cmd.exe,
- * so chalk often emits `38;2;217;119;87` instead of SGR 31. Conhost quantizes
- * 24-bit SGR onto the 16-color palette instead of drawing the RGB, so a hex
- * background is not an escape hatch. The selection always uses a 16-color
- * background and a 16-color foreground. A hex accent is black on yellow.
+ * The foreground is always bright white, including when the background is
+ * ignored. A dark ANSI accent can tint the bar. Yellow, white, gray, and hex
+ * accents do not: yellow is `#808000` under bright white (under 4.5:1), and a
+ * hex background is truecolor. Those themes use blue (SGR 44).
  */
 export function resumeSelectedInk(theme: Theme): { color: string; backgroundColor: string } {
   const accent = theme.accent;
-  // A black bar is the cmd window itself, so it does not mark the row.
-  if (!ANSI_BACKGROUND.has(accent) || accent === "black") return { ...ANSI_SELECTION };
-  return {
-    color: BLACK_ON_ANSI.has(accent) ? "black" : "whiteBright",
-    backgroundColor: accent,
-  };
+  if (theme.name !== "light" && WHITE_ON_ANSI.has(accent)) {
+    return { color: "whiteBright", backgroundColor: accent };
+  }
+  return { ...SAFE_SELECTION };
 }
 
 function lightForeground(theme: Theme, color: string): string {

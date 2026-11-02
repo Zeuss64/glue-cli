@@ -20,6 +20,8 @@ export interface SessionMeta {
   statusline?: string;
   /** Active skill id. Empty means none. */
   skill?: string;
+  /** Git branch when the session was created, when the workspace had one. */
+  branch?: string;
 }
 
 export interface SessionSnapshot {
@@ -27,6 +29,12 @@ export interface SessionSnapshot {
   messages: ChatMessage[];
   items: TranscriptItem[];
   todos: TodoItem[];
+  /**
+   * User and assistant messages in the file.
+   * The resume scan sets this and then drops the rest of the log.
+   * A full `loadSession` leaves it unset; count `messages` instead.
+   */
+  messageCount?: number;
 }
 
 export function sessionsDir(workspace: string): string {
@@ -35,6 +43,7 @@ export function sessionsDir(workspace: string): string {
 
 export function createSession(workspace: string, partial: Omit<SessionMeta, "id" | "createdAt" | "updatedAt" | "name"> & { name?: string }): SessionLog {
   const now = new Date().toISOString();
+  const branch = partial.branch?.trim() || readGitBranch(partial.cwd);
   const meta: SessionMeta = {
     id: sessionId(),
     name: partial.name ?? "",
@@ -44,6 +53,7 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     permissionMode: partial.permissionMode,
     createdAt: now,
     updatedAt: now,
+    ...(branch ? { branch } : {}),
     ...(partial.effort ? { effort: partial.effort } : {}),
     ...(partial.ultracode ? { ultracode: true } : {}),
     ...(partial.goal !== undefined ? { goal: partial.goal } : {}),
@@ -119,6 +129,7 @@ export function loadResumeSnapshot(file: string): SessionSnapshot {
   let meta: SessionMeta | undefined;
   let firstUser: ChatMessage | undefined;
   let firstUserItem: TranscriptItem | undefined;
+  let messageCount = 0;
   const tail: TranscriptItem[] = [];
   for (const line of lines) {
     const record = JSON.parse(line) as Record<string, unknown>;
@@ -126,6 +137,7 @@ export function loadResumeSnapshot(file: string): SessionSnapshot {
       meta = { ...(meta ?? {}), ...(record.meta as SessionMeta) };
     } else if (record.kind === "message") {
       const message = record.message as ChatMessage;
+      if (message.role === "user" || message.role === "assistant") messageCount += 1;
       if (!firstUser && message.role === "user" && message.content.trim()) {
         const content = message.content.length > RESUME_MESSAGE_CLIP ? message.content.slice(0, RESUME_MESSAGE_CLIP) : message.content;
         firstUser = { ...message, content };
@@ -138,7 +150,31 @@ export function loadResumeSnapshot(file: string): SessionSnapshot {
     }
   }
   if (!meta?.id) throw new Error(`Session file is missing metadata: ${file}`);
-  return { meta, messages: firstUser ? [firstUser] : [], items: mergeResumeItems(firstUserItem, tail), todos: [] };
+  return { meta, messages: firstUser ? [firstUser] : [], items: mergeResumeItems(firstUserItem, tail), todos: [], messageCount };
+}
+
+/**
+ * Branch name from `.git/HEAD` in `cwd`. A worktree `.git` file (`gitdir: …`) is followed.
+ * Missing git metadata returns undefined. This does not search parent directories.
+ */
+export function readGitBranch(cwd: string): string | undefined {
+  if (!cwd.trim()) return undefined;
+  try {
+    const gitPath = path.join(cwd, ".git");
+    let headFile = path.join(gitPath, "HEAD");
+    if (!existsSync(headFile)) {
+      const pointer = readFileSync(gitPath, "utf8").trim();
+      const gitdir = /^gitdir:\s*(.+)$/i.exec(pointer)?.[1];
+      if (!gitdir) return undefined;
+      headFile = path.join(path.resolve(cwd, gitdir), "HEAD");
+    }
+    const head = readFileSync(headFile, "utf8").trim();
+    const ref = /^ref: refs\/heads\/(.+)$/.exec(head);
+    if (ref?.[1]) return ref[1];
+    return head ? head.slice(0, 7) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sessionFilesByMtime(workspace: string): string[] {
