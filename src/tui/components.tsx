@@ -472,45 +472,50 @@ export function ResumePicker({
 }) {
   const filter = query ? `filter: ${query}` : "filter: type to search";
   const count = `${matchCount} ${matchCount === 1 ? "session" : "sessions"}`;
+  const current = rows[selected] ?? rows[0];
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
-      <Text bold {...textInk(theme, theme.text)}>Resume session</Text>
-      <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${count}`}</Text>
-      {hiddenAbove > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenAbove} earlier`}</Text> : null}
-      {rows.length === 0 ? <Text {...textInk(theme, theme.muted)}>No matching sessions</Text> : null}
-      {rows.map((row, index) => {
-        const on = index === selected;
-        // Hex accent as a lone foreground collapses on classic cmd. The title
-        // carries the selection. The age is bold; the session id stays plain.
-        const titleInk = on ? resumeSelectedInk(theme) : textInk(theme, theme.text);
-        return (
-          <Box key={row.id} flexDirection="column">
-            <Text wrap="truncate" {...titleInk}>
-              {on ? "❯ " : "  "}
-              {row.title}
-            </Text>
-            <Text wrap="truncate">
-              <Text bold {...textInk(theme, theme.muted)}>{`    ${row.age}`}</Text>
-              {row.detail ? <Text {...textInk(theme, theme.muted)}>{` · ${row.detail}`}</Text> : null}
-            </Text>
+    // The outer box may shrink on a short window (classic cmd is often 25 rows)
+    // and clips the preview. The inner column does not shrink: Ink text nodes
+    // default to flexShrink 1, and a shrunk text row is painted on top of the
+    // next one. That is the missing title — the meta line covers it and only
+    // a tail such as `cock-skills:ask-matt".` sticks out.
+    <Box flexDirection="column" flexShrink={1} minHeight={0} overflow="hidden" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
+      <Box flexDirection="column" flexShrink={0}>
+        <Text bold {...textInk(theme, theme.text)}>Resume session</Text>
+        <Text {...textInk(theme, theme.muted)}>{`${filter}  ·  ${count}`}</Text>
+        {hiddenAbove > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenAbove} earlier`}</Text> : null}
+        {rows.length === 0 ? <Text {...textInk(theme, theme.muted)}>No matching sessions</Text> : null}
+        {rows.map((row, index) => {
+          const on = index === selected;
+          // Bright white on a 16-color bar. Black (SGR 30) disappears on a
+          // black window when the background SGR is not painted.
+          const titleInk = on ? resumeSelectedInk(theme) : textInk(theme, theme.text);
+          return (
+            <Box key={row.id} flexDirection="column" flexShrink={0}>
+              <Text wrap="truncate" bold={on} {...titleInk}>
+                {on ? "❯ " : "  "}
+                {row.title}
+              </Text>
+              <Text wrap="truncate" {...textInk(theme, theme.muted)}>{`    ${row.meta}`}</Text>
+            </Box>
+          );
+        })}
+        {hiddenBelow > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenBelow} later`}</Text> : null}
+        {rows.length > 0 ? (
+          <Box flexDirection="column" marginTop={1} flexShrink={0}>
+            <Text wrap="truncate" {...textInk(theme, theme.muted)}>{`preview · ${current?.detail || current?.id || ""}`}</Text>
+            {preview.length ? (
+              preview.map((line, index) => (
+                <Text key={index} wrap="truncate" {...textInk(theme, theme.text)}>{line}</Text>
+              ))
+            ) : (
+              <Text {...textInk(theme, theme.muted)}>Empty session</Text>
+            )}
           </Box>
-        );
-      })}
-      {hiddenBelow > 0 ? <Text {...textInk(theme, theme.muted)}>{`  ${hiddenBelow} later`}</Text> : null}
-      {rows.length > 0 ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text {...textInk(theme, theme.muted)}>preview</Text>
-          {preview.length ? (
-            preview.map((line, index) => (
-              <Text key={index} wrap="truncate" {...textInk(theme, theme.text)}>{line}</Text>
-            ))
-          ) : (
-            <Text {...textInk(theme, theme.muted)}>Empty session</Text>
-          )}
-        </Box>
-      ) : null}
-      <Text {...textInk(theme, theme.muted)}>↑↓ select · enter resume · esc cancel</Text>
-      <Text {...textInk(theme, theme.muted)}>{"/rename <name> labels the open session"}</Text>
+        ) : null}
+        <Text {...textInk(theme, theme.muted)}>↑↓ select · enter resume · esc cancel</Text>
+        <Text {...textInk(theme, theme.muted)}>{"/rename <name> labels the open session"}</Text>
+      </Box>
     </Box>
   );
 }

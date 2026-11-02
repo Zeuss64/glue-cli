@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 import { render } from "ink-testing-library";
 import chalk from "chalk";
 import test from "node:test";
@@ -41,29 +41,42 @@ const FOREGROUND: Record<string, string> = {
 };
 
 test.describe("resume picker contrast", { concurrency: false }, () => {
-  test("selection is a 16-color pair that stays readable on the legacy cmd palette", () => {
+  test("selection is bright white on a dark 16-color bar, readable even if the bar is dropped", () => {
     for (const accent of Object.values(NAMED_ACCENTS)) {
-      assert.deepEqual(resumeSelectedInk({ ...THEMES.dark, accent }), { color: "black", backgroundColor: "yellow" });
+      assert.deepEqual(resumeSelectedInk({ ...THEMES.dark, accent }), { color: "whiteBright", backgroundColor: "blue" });
     }
-    assert.deepEqual(resumeSelectedInk(THEMES.dark), { color: "black", backgroundColor: "yellow" });
-    assert.deepEqual(resumeSelectedInk(THEMES.light), { color: "black", backgroundColor: "yellow" });
-    assert.deepEqual(resumeSelectedInk(THEMES.ansi), { color: "black", backgroundColor: "yellow" });
-    assert.equal(resumeSelectedInk({ ...THEMES.ansi, accent: "black" }).backgroundColor, "yellow");
+    assert.deepEqual(resumeSelectedInk(THEMES.dark), { color: "whiteBright", backgroundColor: "blue" });
+    assert.deepEqual(resumeSelectedInk(THEMES.light), { color: "whiteBright", backgroundColor: "blue" });
+    assert.deepEqual(resumeSelectedInk(THEMES.ansi), { color: "whiteBright", backgroundColor: "blue" });
+    for (const accent of ["red", "green", "blue", "magenta", "cyan"]) {
+      assert.deepEqual(resumeSelectedInk({ ...THEMES.ansi, accent }), { color: "whiteBright", backgroundColor: accent });
+    }
+    for (const accent of ["black", "yellow", "white", "gray", "whiteBright", "yellowBright"]) {
+      assert.deepEqual(resumeSelectedInk({ ...THEMES.ansi, accent }), { color: "whiteBright", backgroundColor: "blue" });
+    }
     for (const accent of Object.keys(LEGACY)) {
       const ink = resumeSelectedInk({ ...THEMES.ansi, accent });
       const fg = FOREGROUND[ink.color];
       const bg = LEGACY[ink.backgroundColor];
+      assert.equal(ink.color, "whiteBright");
       assert.ok(fg, `${accent} foreground ${ink.color} is not a known palette ink`);
       assert.ok(bg, `${accent} background ${ink.backgroundColor} is not a palette color`);
-      const ratio = contrastRatio(fg, bg ?? "#000000");
-      assert.ok(ratio >= 4.5, `${accent} -> ${ink.color} on ${ink.backgroundColor} contrast ${ratio.toFixed(2)}`);
+      const onBar = contrastRatio(fg, bg ?? "#000000");
+      const onBlack = contrastRatio(fg, "#000000");
+      assert.ok(onBar >= 4.5, `${accent} -> ${ink.color} on ${ink.backgroundColor} contrast ${onBar.toFixed(2)}`);
+      // SGR 30 fails this. A dropped background must not hide the title on cmd.
+      assert.ok(onBlack >= 4.5, `${accent} foreground ${ink.color} on a black window is ${onBlack.toFixed(2)}`);
+      assert.notEqual(ink.color, "black");
       assert.doesNotMatch(ink.color, /^#/);
       assert.doesNotMatch(ink.backgroundColor, /^#/);
     }
-    // The bug: #D97757 is fine in truecolor, and nearly black once reduced to cmd red.
+    // The old bug: #D97757 is fine in truecolor, and nearly black once reduced to cmd red.
     assert.ok(contrastRatio("#D97757", "#000000") >= 4.5);
     assert.ok(contrastRatio("#800000", "#000000") < 2.5);
+    // Black on yellow clears 4.5:1 only while the yellow is painted.
     assert.ok(contrastRatio("#000000", "#808000") >= 4.5);
+    assert.ok(contrastRatio("#000000", "#000000") < 2);
+    assert.ok(contrastRatio("#ffffff", "#000080") >= 4.5);
   });
 
   test("a lone hex accent has no background and becomes dark red at 16 colors", () => {
@@ -103,15 +116,21 @@ test.describe("resume picker contrast", { concurrency: false }, () => {
           const titleLine = text.split("\n").find((line) => line.includes("SelectedTitleZQ")) ?? "";
           const ageLine = text.split("\n").find((line) => line.includes("2h ago")) ?? "";
           assert.match(titleLine, /❯ SelectedTitleZQ/);
-          assert.doesNotMatch(titleLine, /sess-selected|2h ago/);
-          assert.match(ageLine, /2h ago · sess-selected/);
-          assert.doesNotMatch(ageLine, /SelectedTitleZQ/);
+          assert.doesNotMatch(titleLine, /sess-selected|2h ago|messages/);
+          assert.match(ageLine, /2h ago · 4 messages · main/);
+          assert.doesNotMatch(ageLine, /SelectedTitleZQ|sess-selected/);
+          const titleLineRaw = frame.split("\n").find((line) => line.includes("SelectedTitleZQ")) ?? "";
+          assert.doesNotMatch(titleLineRaw, /\x1b\[7m/);
           const selected = markAt(frame, "SelectedTitleZQ");
-          assert.equal(selected.fg, "ansi-30", `${theme.name} level ${level} fg ${selected.fg}`);
-          assert.equal(selected.bg, "ansi-43", `${theme.name} level ${level} bg ${selected.bg}`);
+          assert.equal(selected.fg, "ansi-97", `${theme.name} level ${level} fg ${selected.fg}`);
+          assert.equal(selected.bg, "ansi-44", `${theme.name} level ${level} bg ${selected.bg}`);
+          assert.equal(selected.bold, true, `${theme.name} level ${level} title should be bold`);
+          assert.equal(selected.inverse, false);
           const age = markAt(frame, "2h ago");
-          assert.equal(age.bold, true, `${theme.name} level ${level} age should be bold`);
-          assert.notEqual(age.bg, "ansi-43");
+          assert.equal(age.bold, false, `${theme.name} level ${level} meta should stay plain`);
+          assert.notEqual(age.bg, "ansi-44");
+          assert.match(text, /2h ago · 4 messages · main/);
+          assert.doesNotMatch(ageLine, /sess-selected|SelectedTitleZQ/);
           const id = markAt(frame, "sess-selected");
           assert.equal(id.bold, false, `${theme.name} level ${level} session id should not be bold`);
           assert.notEqual(id.bg, selected.bg, `${theme.name} level ${level} session id uses the selection bar`);
@@ -130,12 +149,12 @@ test.describe("resume picker contrast", { concurrency: false }, () => {
       const light = render(picker(THEMES.light, 1));
       const lightFrame = light.lastFrame() ?? "";
       const lightSelected = markAt(lightFrame, "OtherTitleZQ");
-      assert.equal(lightSelected.fg, "ansi-30");
-      assert.equal(lightSelected.bg, "ansi-43");
+      assert.equal(lightSelected.fg, "ansi-97");
+      assert.equal(lightSelected.bg, "ansi-44");
       const lightPlain = markAt(lightFrame, "SelectedTitleZQ");
       assert.equal(lightPlain.fg, THEMES.light.text.toLowerCase());
       assert.equal(lightPlain.bg, THEMES.light.bg);
-      assert.notEqual(lightPlain.bg, "ansi-43");
+      assert.notEqual(lightPlain.bg, "ansi-44");
       light.unmount();
 
       const named = render(picker({ ...THEMES.ansi, accent: "red" }, 0));
@@ -143,6 +162,66 @@ test.describe("resume picker contrast", { concurrency: false }, () => {
       assert.equal(red.fg, "ansi-97");
       assert.equal(red.bg, "ansi-41");
       named.unmount();
+    } finally {
+      chalk.level = previous;
+    }
+  });
+
+  test("a short window does not paint the meta line over the selected title", () => {
+    const previous = chalk.level;
+    chalk.level = 3;
+    try {
+      const long = 'Follow the active skill "mattpocock-skills:ask-matt".';
+      const rows = [
+        { id: "20261029-153356-9dec", title: long, age: "1d ago", meta: "1d ago · 6 messages · main", detail: "20261029-153356-9dec", messages: 6, branch: "main" },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `2026102${index}-155104-550a`,
+          title: `short ${index}`,
+          age: "3d ago",
+          meta: "3d ago · 2 messages",
+          detail: `2026102${index}-155104-550a`,
+          messages: 2,
+          branch: "",
+        })),
+      ];
+      const view = render(
+        createElement(
+          Box,
+          { flexDirection: "column", height: 24, width: 80, overflow: "hidden" },
+          createElement(Box, { flexShrink: 0 }, createElement(Text, null, "HEADER")),
+          createElement(
+            Box,
+            { flexGrow: 1, flexShrink: 1, minHeight: 0, overflow: "hidden" },
+            createElement(Text, null, "TRANSCRIPT"),
+          ),
+          createElement(ResumePicker, {
+            theme: THEMES.dark,
+            selected: 0,
+            query: "",
+            matchCount: rows.length,
+            preview: [`> ${long}`],
+            rows,
+          }),
+          createElement(Box, { flexShrink: 0 }, createElement(Text, null, "PROMPT_ANCHOR")),
+        ),
+      );
+      const frame = view.lastFrame() ?? "";
+      const text = stripAnsi(frame);
+      const lines = text.split("\n").map((line) => line.trim());
+      const title = lines.find((line) => line.includes(long));
+      const meta = lines.find((line) => line.includes("1d ago"));
+      assert.ok(title, text);
+      assert.ok(meta, text);
+      assert.notEqual(title, meta);
+      assert.match(title ?? "", /❯/);
+      assert.doesNotMatch(title ?? "", /1d ago|20261029|messages/);
+      assert.doesNotMatch(meta ?? "", /ask-matt|Follow the active/);
+      assert.doesNotMatch(text, /9deccock/);
+      assert.match(text, /PROMPT_ANCHOR/);
+      const mark = markAt(frame, "ask-matt");
+      assert.equal(mark.fg, "ansi-97");
+      assert.equal(mark.bg, "ansi-44");
+      view.unmount();
     } finally {
       chalk.level = previous;
     }
@@ -157,8 +236,8 @@ function picker(theme: Theme, selected: number) {
     matchCount: 2,
     preview: ["> preview line"],
     rows: [
-      { id: "sess-selected", title: "SelectedTitleZQ", age: "2h ago", detail: "sess-selected" },
-      { id: "sess-other", title: "OtherTitleZQ", age: "1d ago", detail: "sess-other" },
+      { id: "sess-selected", title: "SelectedTitleZQ", age: "2h ago", meta: "2h ago · 4 messages · main", detail: "sess-selected", messages: 4, branch: "main" },
+      { id: "sess-other", title: "OtherTitleZQ", age: "1d ago", meta: "1d ago · 1 message", detail: "sess-other", messages: 1, branch: "" },
     ],
   });
 }
@@ -167,6 +246,7 @@ interface Mark {
   fg?: string;
   bg?: string;
   bold: boolean;
+  inverse: boolean;
 }
 
 function markAt(frame: string, needle: string): Mark {
@@ -175,6 +255,7 @@ function markAt(frame: string, needle: string): Mark {
   let fg: string | undefined;
   let bg: string | undefined;
   let bold = false;
+  let inverse = false;
   for (const match of frame.slice(0, at).matchAll(/\x1b\[([0-9;]*)m/g)) {
     const raw = match[1] ?? "";
     const parts = raw.length ? raw.split(";").map((part) => Number(part)) : [0];
@@ -185,14 +266,23 @@ function markAt(frame: string, needle: string): Mark {
         fg = undefined;
         bg = undefined;
         bold = false;
+        inverse = false;
         continue;
       }
       if (code === 1) {
         bold = true;
         continue;
       }
+      if (code === 7) {
+        inverse = true;
+        continue;
+      }
       if (code === 22) {
         bold = false;
+        continue;
+      }
+      if (code === 27) {
+        inverse = false;
         continue;
       }
       if (code === 39) {
@@ -218,7 +308,7 @@ function markAt(frame: string, needle: string): Mark {
       else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) bg = `ansi-${code}`;
     }
   }
-  return { fg, bg, bold };
+  return { fg, bg, bold, inverse };
 }
 
 function toHex(red: number, green: number, blue: number): string {
