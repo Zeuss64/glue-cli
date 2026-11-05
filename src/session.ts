@@ -44,8 +44,18 @@ export function sessionsDir(workspace: string): string {
 export function createSession(workspace: string, partial: Omit<SessionMeta, "id" | "createdAt" | "updatedAt" | "name"> & { name?: string }): SessionLog {
   const now = new Date().toISOString();
   const branch = partial.branch?.trim() || readGitBranch(partial.cwd);
+  const dir = sessionsDir(workspace);
+  mkdirSync(dir, { recursive: true });
+  // Ids are `YYYYMMDD-HHMMSS` plus 16 random bits. Two sessions in the same
+  // second can share a file, and `/resume` would then list one row for both.
+  let id = sessionId();
+  let file = path.join(dir, `${id}.jsonl`);
+  while (existsSync(file)) {
+    id = sessionId();
+    file = path.join(dir, `${id}.jsonl`);
+  }
   const meta: SessionMeta = {
-    id: sessionId(),
+    id,
     name: partial.name ?? "",
     cwd: partial.cwd,
     model: partial.model,
@@ -61,8 +71,6 @@ export function createSession(workspace: string, partial: Omit<SessionMeta, "id"
     ...(partial.statusline !== undefined ? { statusline: partial.statusline } : {}),
     ...(partial.skill !== undefined ? { skill: partial.skill } : {}),
   };
-  const file = path.join(sessionsDir(workspace), `${meta.id}.jsonl`);
-  mkdirSync(path.dirname(file), { recursive: true });
   const log = new SessionLog(file, meta);
   log.append({ kind: "meta", meta });
   return log;
