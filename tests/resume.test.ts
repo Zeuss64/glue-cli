@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,7 +22,7 @@ import {
   type ResumeKey,
   type ResumeListItem,
 } from "../src/resume.js";
-import { createSession, findSessionFile, listResumeSessions, listSessions, loadSession, type SessionSnapshot } from "../src/session.js";
+import { createSession, findSessionFile, listResumeSessions, listSessions, loadSession, sessionsDir, type SessionSnapshot } from "../src/session.js";
 import { displayWidth } from "../src/tui/text.js";
 
 function key(partial: Partial<ResumeKey>): ResumeKey {
@@ -348,6 +348,7 @@ test("the resume list still includes sessions past the first 30 files", () => {
       oldestFile = log.file;
     }
   }
+  assert.equal(readdirSync(sessionsDir(cwd)).filter((name) => name.endsWith(".jsonl")).length, 35);
   assert.equal(listSessions(cwd).length, 30);
   const listed = listResumeSessions(cwd);
   assert.equal(listed.length, 35);
