@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { caretVisible, promptCaretMode, promptSegments, showPromptPlaceholder } from "../src/tui/caret.js";
 import { emptyEditor, reduceEditor, type EditorState, type KeyIn } from "../src/tui/editor.js";
-import { emptyDecodeState, isEffortPickerShortcut, pickerSurface, pushConsoleChunk } from "../src/tui/keys.js";
+import { emptyDecodeState, isEffortPickerShortcut, mouseTrackingAfter, pickerSurface, pushConsoleChunk } from "../src/tui/keys.js";
 import { displayWidth } from "../src/tui/text.js";
 
 function key(partial: Partial<KeyIn>): KeyIn {
@@ -250,7 +250,6 @@ test("the mouse wheel scrolls and does not insert text", () => {
   const shift = pushConsoleChunk(emptyDecodeState(), "\x1b[<68;1;1M").keys[0];
   assert.equal(shift?.wheel, 1);
   assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1;1m").keys.length, 0);
-  assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[<0;1;1M").keys.length, 0);
   assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[M`!!").keys[0]?.wheel, 1);
   assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[Ma!!").keys[0]?.wheel, -1);
   const partial = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;");
@@ -266,4 +265,37 @@ test("the mouse wheel scrolls and does not insert text", () => {
   assert.equal(reduceEditor(emptyEditor(), key({ wheel: -1 })).effect, "scroll-down");
   assert.equal(pushConsoleChunk(emptyDecodeState(), "\x1b[5~").keys[0]?.pageUp, true);
   assert.equal(pushConsoleChunk(emptyDecodeState(), "\x00I").keys[0]?.pageUp, true);
+});
+
+test("a left click releases mouse tracking so the terminal can select and copy", () => {
+  const press = pushConsoleChunk(emptyDecodeState(), "\x1b[<0;12;8M").keys[0];
+  assert.equal(press?.wheel, undefined);
+  assert.deepEqual(press?.mouse, { action: "press", button: 0, column: 12, row: 8 });
+  assert.equal(mouseTrackingAfter(press ?? key({})), false);
+  assert.equal(reduceEditor(emptyEditor(), press ?? key({ mouse: { action: "press", button: 0, column: 12, row: 8 } })).state.text, "");
+
+  const release = pushConsoleChunk(emptyDecodeState(), "\x1b[<0;20;10m").keys[0];
+  assert.deepEqual(release?.mouse, { action: "release", button: 0, column: 20, row: 10 });
+  assert.equal(mouseTrackingAfter(release ?? key({})), false);
+
+  const drag = pushConsoleChunk(emptyDecodeState(), "\x1b[<32;14;9M").keys[0];
+  assert.equal(drag?.mouse?.action, "drag");
+  assert.equal(mouseTrackingAfter(drag ?? key({})), false);
+
+  const right = pushConsoleChunk(emptyDecodeState(), "\x1b[<2;4;4M").keys[0];
+  assert.equal(right?.mouse?.button, 2);
+  assert.equal(mouseTrackingAfter(right ?? key({})), false);
+
+  const x10 = pushConsoleChunk(emptyDecodeState(), "\x1b[M !!").keys[0];
+  assert.deepEqual(x10?.mouse, { action: "press", button: 0, column: 1, row: 1 });
+  assert.equal(mouseTrackingAfter(x10 ?? key({})), false);
+
+  const wheel = pushConsoleChunk(emptyDecodeState(), "\x1b[<64;1;1M").keys[0];
+  assert.equal(mouseTrackingAfter(wheel ?? key({ wheel: 1 })), true);
+  const typed = key({ input: "a" });
+  assert.equal(mouseTrackingAfter(typed), true);
+  const page = key({ pageDown: true });
+  assert.equal(mouseTrackingAfter(page), true);
+
+  assert.equal(apply(emptyEditor(), "hi\x1b[<0;1;1M").text, "hi");
 });

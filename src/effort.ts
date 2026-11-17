@@ -47,6 +47,16 @@ export function effortStatusLabel(effort: EffortLevel | undefined, ultracode?: b
   return ultracode ? `${level} · ultracode` : level;
 }
 
+/**
+ * Injected into the system prompt so the model sees the live input-box
+ * selection. The TUI is not visible to the model; without this line it
+ * cannot know the current effort and may invent a hardcoded max.
+ */
+export function effortPromptLine(effort: EffortLevel | undefined, ultracode?: boolean): string {
+  const status = effortStatusLabel(effort, ultracode);
+  return `Current session reasoning effort: ${status}. This is the user's live selection from the input box, not a hardcoded default.`;
+}
+
 const EFFORT_COLOR: Record<string, string> = {
   low: "yellow",
   medium: "green",

@@ -64,7 +64,7 @@ import { frameRows, layoutColumns, moveScroll, pageLines, reconcileSize, scrollH
 import { cyclePluginRemove, cycleSkillArg, cycleSlash, slashTabIndex, visibleSlash, type SlashCycle } from "./complete.js";
 import { statusBarLine } from "./footer.js";
 import { imeAnchor, statusAreaRows, wrappedRowCount } from "./ime.js";
-import { isEffortPickerShortcut, MOUSE_TRACKING_ON, pickerSurface } from "./keys.js";
+import { isEffortPickerShortcut, mouseTrackingAfter, MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, pickerSurface } from "./keys.js";
 import { attachImeCursorSync, bindInkClear, reflowTerminal, restoreTerminal } from "./screen.js";
 import {
   ChoiceDialog,
@@ -255,6 +255,7 @@ function App({ boot }: { boot: Boot }) {
   const stashRef = useRef<EditorState | null>(null);
   const lastCtrlC = useRef(0);
   const lastEsc = useRef(0);
+  const mouseOnRef = useRef(true);
   const lastCtrlD = useRef(0);
   const bgRef = useRef(false);
   const checkpointsRef = useRef<Checkpoint[]>([]);
@@ -354,6 +355,7 @@ function App({ boot }: { boot: Boot }) {
       extraRoots: rootsRef.current.slice(1),
       append: boot.appendSystem,
       goal: goalRef.current,
+      effort: effortRef.current,
       ultracode: ultracodeRef.current,
       ...skillPromptParts(),
     });
@@ -1237,8 +1239,20 @@ function App({ boot }: { boot: Boot }) {
     };
   }, []);
 
+  function writeMouseTracking(on: boolean): void {
+    const target = stdout ?? process.stdout;
+    if (!target?.isTTY) return;
+    target.write(on ? MOUSE_TRACKING_ON : MOUSE_TRACKING_OFF);
+  }
+
   function handleKey(key: KeyIn): void {
     const k = key;
+    const tracking = mouseTrackingAfter(k);
+    if (tracking !== mouseOnRef.current) {
+      mouseOnRef.current = tracking;
+      writeMouseTracking(tracking);
+    }
+    if (k.mouse) return;
     if (commandHelpRef.current && (k.up || k.down || k.pageUp || k.pageDown || k.wheel || k.escape || (k.ctrl && k.input === "c"))) {
       if (k.escape || (k.ctrl && k.input === "c")) {
         commandHelpRef.current = false;

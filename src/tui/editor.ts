@@ -32,6 +32,8 @@ export interface KeyIn {
   end?: boolean;
   /** `1` is wheel up (older lines). `-1` is wheel down. */
   wheel?: -1 | 1;
+  /** Non-wheel SGR/X10 mouse. Used to release tracking so the terminal can select. */
+  mouse?: { action: "press" | "release" | "drag"; button: number; column: number; row: number };
 }
 
 export type EditorEffect =
@@ -58,6 +60,7 @@ export function emptyEditor(vim = false): EditorState {
 }
 
 export function reduceEditor(state: EditorState, key: KeyIn): { state: EditorState; effect?: EditorEffect } {
+  if (key.mouse) return { state };
   const input = key.input.replace(/\x1b\[200~/g, "").replace(/\x1b\[201~/g, "");
   if ((key.tab && key.shift) || (key.meta && input === "m")) return { state, effect: "cycle-mode" };
   if (key.ctrl && input === "c") return { state, effect: "ctrl-c" };

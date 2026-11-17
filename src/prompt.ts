@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { ULTRACODE_DESCRIPTION } from "./effort.js";
+import { effortPromptLine, ULTRACODE_DESCRIPTION, type EffortLevel } from "./effort.js";
 import { packageRoot } from "./paths.js";
 import type { PermissionMode } from "./types.js";
 
@@ -13,6 +13,8 @@ export interface PromptParts {
   extraRoots?: string[];
   append?: string;
   goal?: string;
+  /** Live session effort from the input box. Omitted means auto. */
+  effort?: EffortLevel;
   /** When true, every task runs as a dynamic workflow via `spawn_subagent`. */
   ultracode?: boolean;
   /** Name and description only. The body loads through the skill tool or when a skill is active. */
@@ -53,6 +55,7 @@ export function buildSystemPrompt(parts: PromptParts): string {
     roots.length > 1 ? `Additional directories: ${roots.slice(1).join(", ")}` : "",
     `Profile: ${parts.profile}`,
     `Permission mode: ${parts.permissionMode}`,
+    effortPromptLine(parts.effort, parts.ultracode),
     parts.shellEnabled
       ? "Shell: enabled. The user may still be asked to approve commands. Prefer file tools for reading and editing."
       : "Shell: disabled. Do not call run_shell. Ask the user to enable shell in .agent/config.toml if a command is required.",
