@@ -21,4 +21,6 @@ test("README points at the TUI guide, and the guide names the current entry poin
   assert.match(doc, /npm test/);
   assert.match(doc, /Windows Terminal/);
   assert.match(doc, /Legacy cmd\.exe/);
+  assert.match(doc, /effortPromptLine/);
+  assert.match(doc, /native selection/);
 });

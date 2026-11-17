@@ -24,9 +24,26 @@ export function emptyDecodeState(): DecodeState {
  * Button-event tracking plus SGR encoding. The wheel then arrives as input
  * instead of moving a console buffer that this frame repaints over.
  * Classic conhost may ignore the request; Page Up and Page Down still scroll.
+ *
+ * Tracking captures every button, so a left-drag cannot start a native
+ * selection. A non-wheel press turns tracking off; the next key turns it
+ * back on. Windows Terminal (and other common hosts) then copy with the
+ * usual shortcut, including Ctrl+Shift+C.
  */
 export const MOUSE_TRACKING_ON = "\x1b[?1000h\x1b[?1006h";
 export const MOUSE_TRACKING_OFF = "\x1b[?1000l\x1b[?1006l";
+
+/**
+ * After this key, should DEC 1000/1006 stay enabled?
+ * Wheel keeps it on. Any other mouse button turns it off so the terminal
+ * can start a native selection (Windows Terminal included). The next
+ * keyboard event turns it back on.
+ */
+export function mouseTrackingAfter(key: KeyIn): boolean {
+  if (key.wheel) return true;
+  if (key.mouse) return false;
+  return true;
+}
 
 /** Wheel up is `1` (toward older lines). Shift, meta, and ctrl are ignored. */
 export function wheelDirection(button: number): -1 | 1 | 0 {
@@ -154,7 +171,7 @@ export function isEffortPickerShortcut(key: { meta?: boolean; ctrl?: boolean; in
 }
 
 function push(keys: KeyIn[], key: KeyIn): void {
-  if (key.wheel || key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
+  if (key.wheel || key.mouse || key.input || key.ctrl || key.meta || key.return || key.escape || key.tab || key.backspace || key.delete || key.up || key.down || key.left || key.right || key.pageUp || key.pageDown || key.home || key.end) {
     keys.push(key);
   }
 }
@@ -183,7 +200,20 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
       if (text.length < 6) return { incomplete: true, length: 0 };
       const button = text.charCodeAt(3) - 32;
       const dir = wheelDirection(button);
-      return { incomplete: false, length: 6, key: dir ? { ...blankKey(), wheel: dir } : undefined };
+      if (dir) return { incomplete: false, length: 6, key: { ...blankKey(), wheel: dir } };
+      return {
+        incomplete: false,
+        length: 6,
+        key: {
+          ...blankKey(),
+          mouse: {
+            action: "press",
+            button: button & 3,
+            column: text.charCodeAt(4) - 32,
+            row: text.charCodeAt(5) - 32,
+          },
+        },
+      };
     }
     let n = 2;
     while (n < text.length && n - 2 <= 48) {
@@ -215,14 +245,31 @@ function parseEscape(text: string): { incomplete: boolean; length: number; key?:
   return { incomplete: false, length: 1 + ch.length, key };
 }
 
+function sgrMouse(body: string, final: string): KeyIn {
+  const key = blankKey();
+  const parts = body.slice(1).split(";");
+  const button = Number(parts[0] ?? "");
+  const column = Number(parts[1] ?? "1");
+  const row = Number(parts[2] ?? "1");
+  const dir = wheelDirection(button);
+  if (dir) {
+    if (final === "M") key.wheel = dir;
+    return key;
+  }
+  const motion = (button & 32) !== 0;
+  key.mouse = {
+    action: final === "m" ? "release" : motion ? "drag" : "press",
+    button: button & 3,
+    column: Number.isFinite(column) ? column : 1,
+    row: Number.isFinite(row) ? row : 1,
+  };
+  return key;
+}
+
 function csiKey(body: string, final: string): KeyIn {
   const key = blankKey();
   if ((final === "M" || final === "m") && body.startsWith("<")) {
-    if (final === "m") return key;
-    const button = Number(body.slice(1).split(";")[0] ?? "");
-    const dir = wheelDirection(button);
-    if (dir) key.wheel = dir;
-    return key;
+    return sgrMouse(body, final);
   }
   if (final === "Z") {
     key.tab = true;

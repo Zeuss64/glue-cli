@@ -60,11 +60,11 @@ The transcript region is the only flexible child: `flexGrow={1} flexShrink={1} m
 
 Fullscreen and a resized window use the same frame rule. A 30-row window becomes a 29-row frame. A 55-row fullscreen console becomes 54. The root box width is `layoutColumns`: one less than the terminal. A rule that occupies every column wraps on the last cell and leaves a second line under the input; log-update does not count that wrapped row, so the next paint cannot erase it. Cover new size rules in `tests/viewport.test.ts`.
 
-Page Up and Page Down move about one screen (`pageLines`). The mouse wheel moves `WHEEL_LINES` (3) per notch. `startTui` enables SGR mouse tracking (`1000` + `1006`) so the wheel is delivered as input instead of scrolling a console buffer the next repaint overwrites. It is turned off when the session exits, and the visible frame is erased so the input rules do not stay over cmd. Legacy conhost may ignore the wheel request; Page Up and Page Down still move the same window. A hint line (`scrollHint`) is reserved when any lines are hidden. New output keeps the window still while it is scrolled up, and follows the tail when scroll is `0`.
+Page Up and Page Down move about one screen (`pageLines`). The mouse wheel moves `WHEEL_LINES` (3) per notch. `startTui` enables SGR mouse tracking (`1000` + `1006`) so the wheel is delivered as input instead of scrolling a console buffer the next repaint overwrites. A non-wheel press (left, right, or drag) writes `MOUSE_TRACKING_OFF` so the host can start a native selection; Windows Terminal copies that selection with Ctrl+Shift+C or the context menu. The next keyboard event, including PgUp/PgDn, turns tracking back on (`mouseTrackingAfter`). Exit still sends `RESTORE_TERMINAL_SEQUENCE`. Legacy conhost may ignore the wheel request; Page Up and Page Down still move the same window. A hint line (`scrollHint`) is reserved when any lines are hidden. New output keeps the window still while it is scrolled up, and follows the tail when scroll is `0`.
 
 ## Scroll
 
-The host scrollbar does not track the transcript. The frame is repainted in place, and the alternate screen stays off, so the Windows slider is not the position of the conversation. Wheel (SGR mouse), PgUp, and PgDn move `transcriptWindow`. The hint from `scrollHint` (`… wheel or pgup for earlier · pgdn for latest`) is the indicator. Legacy conhost often does not send wheel bytes; PgUp and PgDn still work. Do not tell the user the host scrollbar moves.
+The host scrollbar does not track the transcript. The frame is repainted in place, and the alternate screen stays off, so the Windows slider is not the position of the conversation. Wheel (SGR mouse), PgUp, and PgDn move `transcriptWindow`. The hint from `scrollHint` (`… wheel or pgup for earlier · pgdn for latest`) is the indicator. Legacy conhost often does not send wheel bytes; PgUp and PgDn still work. Do not tell the user the host scrollbar moves. Mouse tracking must not stay on during a left-drag: that is what blocked native copy in Windows Terminal.
 
 ## Chinese IME
 
@@ -100,7 +100,7 @@ The overlay is centered. `Faster` and `Smarter` flank one thin track, and the le
 
 The built-in footer is only the mode line (`shift+tab to cycle`) plus the shortcut hint. It does not print path, model, effort, tokens, ctx, or cache. A custom `~/.glue` statusline still paints above that line when the script prints something. The API level is stored on the session meta (`effort`) with `ultracode` beside it, and is read from config (`effort`) or `GLUE_EFFORT` / `AGENT_EFFORT`. The model picker still cycles `EFFORT_CYCLE` and keeps the UltraCode flag when the level changes.
 
-Anthropic requests send `output_config.effort` only when the level is not `auto`. OpenAI Chat Completions do not get `reasoning_effort`. Keep that split in `src/llm/anthropic.ts` and `src/llm/client.ts`.
+`buildSystemPrompt` includes `effortPromptLine` for the live session value (`Current session reasoning effort: …`). `rebuildSystem` passes `effortRef.current`, so a change in the input box (`/effort`, Alt+P, or `/model` left/right) is what the model sees on the next turn. Do not inject a hardcoded max or Cursor-style "Absolute maximum" line. Anthropic requests send `output_config.effort` only when the level is not `auto`, using that same selection. OpenAI Chat Completions do not get `reasoning_effort`. Keep that split in `src/llm/anthropic.ts` and `src/llm/client.ts`.
 
 ## Windows input
 
@@ -121,6 +121,7 @@ Accepted bytes:
 | Shift+Tab | `CSI Z` | scan code `\x0f` after `\x00` or `\xE0` |
 | Printable text, CJK, emoji | one insert per run of characters | same; deletion uses grapheme boundaries |
 | Mouse wheel | SGR `\x1b[<64;x;yM` up, `\x1b[<65;x;yM` down, after tracking is enabled | often no wheel bytes; Page Up (`CSI 5~` or scan code `I`) and Page Down still scroll |
+| Left click / drag | SGR `\x1b[<0;x;yM` press, `\x1b[<0;x;ym` release; tracking drops so the host can select | same; native copy after the press |
 
 A scan-code prefix with no second byte yet stays in `DecodeState.pending`.
 
